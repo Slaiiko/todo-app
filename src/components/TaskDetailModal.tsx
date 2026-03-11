@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Task, Category, Subtask, Affaire, TaskAssignee } from '../types';
 import { X, Calendar as CalendarIcon, Tag, AlignLeft, CheckSquare, Trash2, Plus, Briefcase, Users, ArchiveIcon, CheckCircle2, Circle, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { getAPIUrl } from '../utils/api';
 import remarkGfm from 'remark-gfm';
 import CommentSection from './CommentSection';
 import TimePicker from './TimePicker';

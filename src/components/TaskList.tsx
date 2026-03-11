@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, Circle, Clock, MoreVertical, Trash2, Edit2, Briefcase, MessageCircle, ChevronDown, Search, X } from 'lucide-react';
 import { format, isPast, parseISO, isWithinInterval } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { getAPIUrl } from '../utils/api';
 import { useState, useEffect, useMemo } from 'react';
 import SubtaskList from './SubtaskList';
 import TaskRow from './TaskRow';

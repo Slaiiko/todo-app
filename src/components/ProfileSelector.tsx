@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Profile } from '../types';
+import { getAPIUrl } from '../utils/api';
 import { Plus, Trash2, RotateCcw, Edit2 } from 'lucide-react';
 
 interface Props {

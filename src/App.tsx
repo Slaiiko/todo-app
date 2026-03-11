@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Profile, Task, Category, Affaire, ViewMode, Appointment } from './types';
+import { getAPIUrl } from './utils/api';
 import Sidebar from './components/Sidebar';
 import ProfileSelector from './components/ProfileSelector';
 import TaskList from './components/TaskList';
@@ -18,15 +19,8 @@ import FocusMode from './components/FocusMode';
 import TaskDetailModal from './components/TaskDetailModal';
 import AppointmentModal from './components/AppointmentModal';
 import AffairesView from './components/AffairesView';
-
-// Helper to support both local and remote backend
-const getAPIUrl = (endpoint: string) => {
-  const base = import.meta.env.VITE_API_BASE_URL || '';
-  return `${base}/api${endpoint}`;
-};
 import SettingsView from './components/SettingsView';
 import { Plus, AlertCircle, X, CheckCircle2, Clock, Calendar } from 'lucide-react';
-
 import BackupManager from './components/BackupManager';
 
 // Color utility functions

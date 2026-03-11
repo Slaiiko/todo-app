@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { MessageCircle, Send, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { getAPIUrl } from '../utils/api';
 
 interface Comment {
   id?: number;

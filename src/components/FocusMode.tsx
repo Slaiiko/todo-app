@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Task, Profile } from '../types';
 import { X, Play, Pause, RotateCcw, CheckCircle2 } from 'lucide-react';
+import { getAPIUrl } from '../utils/api';
 
 interface Props {
   profile: Profile;

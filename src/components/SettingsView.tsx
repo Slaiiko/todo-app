@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Check, Trash2, Edit2, X } from 'lucide-react';
 import { Profile, Category } from '../types';
+import { getAPIUrl } from '../utils/api';
 
 interface SettingsViewProps {
   profile: Profile | null;

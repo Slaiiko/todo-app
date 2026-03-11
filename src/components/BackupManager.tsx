@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DatabaseBackup, Download, Upload, Trash2, Lock, FileJson, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { getAPIUrl } from '../utils/api';
 
 interface Backup {
   id: number;
