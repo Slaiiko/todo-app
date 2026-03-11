@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 const DB_PATH = "todo_app.db";
 const BACKUP_DIR = path.join(process.cwd(), "backups");
 
@@ -1207,9 +1207,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.resolve(__dirname, "dist")));
+    app.use(express.static(path.resolve(process.cwd(), "dist")));
     app.get("*", (req, res) => {
-      res.sendFile(path.resolve(__dirname, "dist", "index.html"));
+      res.sendFile(path.resolve(process.cwd(), "dist", "index.html"));
     });
   }
 
