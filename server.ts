@@ -128,6 +128,12 @@ try {
 }
 
 try {
+  db.exec(`ALTER TABLE profiles ADD COLUMN custom_labels TEXT`);
+} catch (e) {
+  // Column might already exist
+}
+
+try {
   db.exec(`ALTER TABLE profiles ADD COLUMN logo LONGTEXT`);
 } catch (e) {
   // Column might already exist
@@ -140,6 +146,12 @@ db.exec(`
     avatar TEXT,
     color_theme TEXT DEFAULT 'blue',
     app_background_theme TEXT DEFAULT 'theme-1',
+    is_archived BOOLEAN DEFAULT 0,
+    logo LONGTEXT,
+    custom_background_image LONGTEXT,
+    font_family TEXT DEFAULT 'system',
+    text_color TEXT DEFAULT '#000000',
+    custom_labels TEXT,
     pin_hash TEXT,
     xp INTEGER DEFAULT 0,
     level INTEGER DEFAULT 1,
@@ -170,14 +182,21 @@ db.exec(`
     profile_id INTEGER,
     title TEXT NOT NULL,
     description_md TEXT,
+    start_date DATETIME,
     due_date DATETIME,
+    start_time TEXT,
+    end_time TEXT,
     priority TEXT DEFAULT 'Medium',
     category_id INTEGER,
     affaire_id INTEGER,
     is_complete BOOLEAN DEFAULT 0,
     is_archived BOOLEAN DEFAULT 0,
     is_deleted BOOLEAN DEFAULT 0,
+    bg_color TEXT DEFAULT NULL,
+    time_spent INTEGER DEFAULT 0,
     recurrence TEXT,
+    recurrence_type TEXT,
+    recurrence_end_date DATETIME,
     order_index INTEGER DEFAULT 0,
     kanban_column TEXT DEFAULT 'To Do',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -193,6 +212,8 @@ db.exec(`
     task_id INTEGER,
     title TEXT NOT NULL,
     is_complete BOOLEAN DEFAULT 0,
+    time_spent INTEGER DEFAULT 0,
+    completed_at DATETIME,
     FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
   );
 
