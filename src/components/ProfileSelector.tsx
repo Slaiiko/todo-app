@@ -84,7 +84,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
     if (!profileId) return;
     
     try {
-      const res = await fetch(`/api/profiles/${profileId}`, {
+      const res = await fetch(getAPIUrl(`/profiles/${profileId}`), {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -111,7 +111,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
 
   const handleSaveEdit = async (profileId: number) => {
     try {
-      const response = await fetch(`/api/profiles/${profileId}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profileId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

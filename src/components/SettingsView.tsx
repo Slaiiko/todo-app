@@ -428,7 +428,7 @@ export default function SettingsView({
     setIsSaving(true);
 
     try {
-      const response = await fetch(`/api/profiles/${profile.id}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profile.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -461,7 +461,7 @@ export default function SettingsView({
     setIsSaving(true);
 
     try {
-      const response = await fetch(`/api/profiles/${profile.id}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profile.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -593,7 +593,7 @@ export default function SettingsView({
     setIsSaving(true);
 
     try {
-      const response = await fetch(`/api/profiles/${profile.id}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profile.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -635,7 +635,7 @@ export default function SettingsView({
     setIsSaving(true);
 
     try {
-      const response = await fetch(`/api/profiles/${profile.id}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profile.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -714,7 +714,7 @@ export default function SettingsView({
     setSavingLabel(true);
     try {
       const updatedLabels = { ...customLabels, [key]: editingLabelValue };
-      const response = await fetch(`/api/profiles/${profile.id}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profile.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

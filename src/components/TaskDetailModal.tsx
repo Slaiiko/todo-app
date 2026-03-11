@@ -76,7 +76,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
   const fetchAssignees = async () => {
     if (!task?.id) return;
     try {
-      const res = await fetch(`/api/tasks/${task.id}/assignees`);
+      const res = await fetch(getAPIUrl(`/tasks/${task.id}/assignees`));
       const data = await res.json();
       setAssignees(data);
     } catch (e) {
@@ -133,7 +133,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
   const deleteAssignee = async (id: number) => {
     if (id > 0) {
       try {
-        await fetch(`/api/task-assignees/${id}`, { method: 'DELETE' });
+        await fetch(getAPIUrl(`/task-assignees/${id}`), { method: 'DELETE' });
       } catch (e) {
         console.log('Could not delete assignee from API:', e);
       }
@@ -221,7 +221,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
 
   const toggleSubtask = async (id: number, is_complete: boolean) => {
     try {
-      await fetch(`/api/subtasks/${id}`, {
+      await fetch(getAPIUrl(`/subtasks/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_complete })
@@ -235,7 +235,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
   const deleteSubtask = async (id: number) => {
     try {
       if (id > 0) {
-        await fetch(`/api/subtasks/${id}`, { method: 'DELETE' });
+        await fetch(getAPIUrl(`/subtasks/${id}`), { method: 'DELETE' });
       }
     } catch (e) {
       console.log('Could not delete subtask');

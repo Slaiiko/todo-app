@@ -136,7 +136,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
   const handleToggleSubtask = async (subtaskId: number, isComplete: boolean) => {
     try {
       console.log('Toggling subtask', subtaskId, 'to', isComplete);
-      const response = await fetch(`/api/subtasks/${subtaskId}`, {
+      const response = await fetch(getAPIUrl(`/subtasks/${subtaskId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_complete: isComplete })
@@ -158,7 +158,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
   const handleDeleteSubtask = async (subtaskId: number) => {
     try {
       console.log('Deleting subtask', subtaskId);
-      const response = await fetch(`/api/subtasks/${subtaskId}`, { method: 'DELETE' });
+      const response = await fetch(getAPIUrl(`/subtasks/${subtaskId}`), { method: 'DELETE' });
       if (response.ok) {
         console.log('Subtask deleted successfully');
         // Wait a small moment before dispatching to ensure database is updated

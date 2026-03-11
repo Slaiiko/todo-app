@@ -141,7 +141,7 @@ export default function SubtaskList({
     if (!newTitle) return;
 
     try {
-      const response = await fetch(`/api/subtasks/${subtaskId}`, {
+      const response = await fetch(getAPIUrl(`/subtasks/${subtaskId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newTitle })

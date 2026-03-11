@@ -71,7 +71,7 @@ const TaskRowComponent = ({
   const handleColorChange = async (color: string) => {
     setSelectedColor(color);
     try {
-      await fetch(`/api/tasks/${task.id}`, {
+      await fetch(getAPIUrl(`/tasks/${task.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bg_color: color })

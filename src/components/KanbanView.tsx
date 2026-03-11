@@ -117,7 +117,7 @@ export default function KanbanView({ tasks, onTaskMove, onEdit }: Props) {
       updatePayload.completed_at = new Date().toISOString();
     }
     
-    await fetch(`/api/tasks/${movedTask.id}/kanban`, {
+    await fetch(getAPIUrl(`/tasks/${movedTask.id}/kanban`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updatePayload)
@@ -149,7 +149,7 @@ export default function KanbanView({ tasks, onTaskMove, onEdit }: Props) {
     e.stopPropagation();
     if (confirm('Êtes-vous sûr de vouloir supprimer cette tâche ?')) {
       try {
-        await fetch(`/api/tasks/${taskId}`, {
+        await fetch(getAPIUrl(`/tasks/${taskId}`), {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
         });

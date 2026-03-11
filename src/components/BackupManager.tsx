@@ -107,7 +107,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
     if (!confirm('Voulez-vous vraiment supprimer cette sauvegarde ?')) return;
     
     try {
-      await fetch(`/api/backups/${id}`, { method: 'DELETE' });
+      await fetch(getAPIUrl(`/backups/${id}`), { method: 'DELETE' });
       fetchBackups();
     } catch (error) {
       console.error('Failed to delete backup', error);
