@@ -192,7 +192,7 @@ export default function App() {
       for (const task of overdueTasks) {
         if (task.priority !== 'Urgent') {
           try {
-            await fetch(`/api/tasks/${task.id}`, {
+            await fetch(getAPIUrl(`/tasks/${task.id}`), {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ...task, priority: 'Urgent' })
@@ -725,7 +725,7 @@ export default function App() {
       if (validationModal.subtaskId) {
         // Complete subtask with time
         console.log('📋 Completing SUBTASK', validationModal.subtaskId, 'with time:', timeSpent);
-        const response = await fetch(`/api/subtasks/${validationModal.subtaskId}`, {
+        const response = await fetch(getAPIUrl(`/subtasks/${validationModal.subtaskId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_complete: true, time_spent: timeSpent, completed_at: new Date().toISOString() })
@@ -746,7 +746,7 @@ export default function App() {
       } else {
         // Complete task with time
         console.log('📝 Completing TASK', validationModal.taskId, 'with time:', timeSpent);
-        const response = await fetch(`/api/tasks/${validationModal.taskId}`, {
+        const response = await fetch(getAPIUrl(`/tasks/${validationModal.taskId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_complete: true, time_spent: timeSpent, completed_at: new Date().toISOString() })
@@ -781,7 +781,7 @@ export default function App() {
       if (validationModal.subtaskId) {
         // Complete subtask without time
         console.log('📋 Completing SUBTASK', validationModal.subtaskId, 'without time');
-        const response = await fetch(`/api/subtasks/${validationModal.subtaskId}`, {
+        const response = await fetch(getAPIUrl(`/subtasks/${validationModal.subtaskId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_complete: true, completed_at: new Date().toISOString() })
@@ -802,7 +802,7 @@ export default function App() {
       } else {
         // Complete task without time
         console.log('📝 Completing TASK', validationModal.taskId, 'without time');
-        const response = await fetch(`/api/tasks/${validationModal.taskId}`, {
+        const response = await fetch(getAPIUrl(`/tasks/${validationModal.taskId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_complete: true, completed_at: new Date().toISOString() })
@@ -836,7 +836,7 @@ export default function App() {
       console.log('🟢 handleValidateWithCumulatedTime START');
       const cumulatedTime = getCumulativeSubtaskTime(validationModal.taskId);
       console.log('📝 Completing TASK', validationModal.taskId, 'with cumulated time:', cumulatedTime);
-      const response = await fetch(`/api/tasks/${validationModal.taskId}`, {
+      const response = await fetch(getAPIUrl(`/tasks/${validationModal.taskId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_complete: true, time_spent: cumulatedTime, completed_at: new Date().toISOString() })
@@ -876,13 +876,13 @@ export default function App() {
     if (!activeProfile) return;
     
     const [tasksRes, archiveRes, trashRes, categoriesRes, affairesRes, statsRes, appointmentsRes] = await Promise.all([
-      fetch(`/api/tasks/${activeProfile.id}`),
-      fetch(`/api/tasks/${activeProfile.id}/archive`),
-      fetch(`/api/tasks/${activeProfile.id}/trash`),
-      fetch(`/api/categories/${activeProfile.id}`),
-      fetch(`/api/affaires/${activeProfile.id}`),
-      fetch(`/api/stats/${activeProfile.id}`),
-      fetch(`/api/appointments/${activeProfile.id}`)
+      fetch(getAPIUrl(`/tasks/${activeProfile.id}`)),
+      fetch(getAPIUrl(`/tasks/${activeProfile.id}/archive`)),
+      fetch(getAPIUrl(`/tasks/${activeProfile.id}/trash`)),
+      fetch(getAPIUrl(`/categories/${activeProfile.id}`)),
+      fetch(getAPIUrl(`/affaires/${activeProfile.id}`)),
+      fetch(getAPIUrl(`/stats/${activeProfile.id}`)),
+      fetch(getAPIUrl(`/appointments/${activeProfile.id}`))
     ]);
     
     const tasksData = await tasksRes.json();
@@ -1304,7 +1304,7 @@ export default function App() {
       // STEP 1: Create or update task
       if (data.task.id) {
         console.log('📝 Updating existing task ID:', data.task.id);
-        const response = await fetch(`/api/tasks/${data.task.id}`, {
+        const response = await fetch(getAPIUrl(`/tasks/${data.task.id}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data.task)
@@ -1401,11 +1401,11 @@ export default function App() {
         if (!window.confirm('Êtes-vous sûr de vouloir supprimer ce rendez-vous récurrent?')) {
           return;
         }
-        const response = await fetch(`/api/appointments/${appointmentId}`, { method: 'DELETE' });
+        const response = await fetch(getAPIUrl(`/appointments/${appointmentId}`), { method: 'DELETE' });
         if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
       } else {
         // Handle task deletion
-        const response = await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+        const response = await fetch(getAPIUrl(`/tasks/${id}`), { method: 'DELETE' });
         if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
       }
       await fetchData();
@@ -1458,7 +1458,7 @@ export default function App() {
         return;
       }
       
-      const response = await fetch(`/api/tasks/${task.id}`, {
+      const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_complete: isComplete })
@@ -1500,7 +1500,7 @@ export default function App() {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer cette catégorie ?')) {
       setDeletingCategoryId(id);
       try {
-        const response = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+        const response = await fetch(getAPIUrl(`/categories/${id}`), { method: 'DELETE' });
         if (response.ok) {
           await fetchData();
           setDeletingCategoryId(null);
@@ -1522,7 +1522,7 @@ export default function App() {
   };
 
   const handleUpdateAffaire = async (affaire: Affaire) => {
-    await fetch(`/api/affaires/${affaire.id}`, {
+    await fetch(getAPIUrl(`/affaires/${affaire.id}`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(affaire)
@@ -1531,13 +1531,13 @@ export default function App() {
   };
 
   const handleDeleteAffaire = async (id: number) => {
-    await fetch(`/api/affaires/${id}`, { method: 'DELETE' });
+    await fetch(getAPIUrl(`/affaires/${id}`), { method: 'DELETE' });
     fetchData();
   };
 
   const handleTaskArchive = async (id: number) => {
     try {
-      const response = await fetch(`/api/tasks/${id}`, {
+      const response = await fetch(getAPIUrl(`/tasks/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_archived: 1 })
@@ -1554,7 +1554,7 @@ export default function App() {
 
   const handleTaskRestore = async (id: number) => {
     try {
-      const response = await fetch(`/api/tasks/${id}`, {
+      const response = await fetch(getAPIUrl(`/tasks/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_deleted: 0, is_archived: 0, is_complete: 0 })
@@ -1592,7 +1592,7 @@ export default function App() {
 
   const handleDeletePermanent = async (id: number) => {
     try {
-      const response = await fetch(`/api/tasks/${id}/permanent`, {
+      const response = await fetch(getAPIUrl(`/tasks/${id}/permanent`), {
         method: 'DELETE'
       });
       if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
@@ -1605,7 +1605,7 @@ export default function App() {
   const handleEmptyTrash = async () => {
     if (!confirm('Êtes-vous sûr? Cette action ne peut pas être annulée.')) return;
     try {
-      const response = await fetch(`/api/tasks/trash/empty/${activeProfile?.id}`, { 
+      const response = await fetch(getAPIUrl(`/tasks/trash/empty/${activeProfile?.id}`), { 
         method: 'DELETE' 
       });
       if (!response.ok) throw new Error(`Empty trash failed: ${response.status}`);
@@ -1620,7 +1620,7 @@ export default function App() {
       const profileToArchive = profiles.find(p => p.id === profileId);
       if (!profileToArchive) throw new Error('Profile not found');
 
-      const response = await fetch(`/api/profiles/${profileId}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profileId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...profileToArchive, is_archived: true })
@@ -1641,7 +1641,7 @@ export default function App() {
       const profileToRestore = profiles.find(p => p.id === profileId);
       if (!profileToRestore) throw new Error('Profile not found');
 
-      const response = await fetch(`/api/profiles/${profileId}`, {
+      const response = await fetch(getAPIUrl(`/profiles/${profileId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...profileToRestore, is_archived: false })
@@ -1677,7 +1677,7 @@ export default function App() {
 
       if (selectedAppointment?.id) {
         // Update existing appointment
-        await fetch(`/api/appointments/${selectedAppointment.id}`, {
+        await fetch(getAPIUrl(`/appointments/${selectedAppointment.id}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1706,7 +1706,7 @@ export default function App() {
   const handleDeleteAppointment = async (appointmentId: number) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer ce rendez-vous?')) return;
     try {
-      await fetch(`/api/appointments/${appointmentId}`, {
+      await fetch(getAPIUrl(`/appointments/${appointmentId}`), {
         method: 'DELETE'
       });
       await fetchData();
@@ -2021,7 +2021,7 @@ export default function App() {
                   }}
                   onDeleteCategory={async (id: number) => {
                     try {
-                      const response = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+                      const response = await fetch(getAPIUrl(`/categories/${id}`), { method: 'DELETE' });
                       if (response.ok) {
                         await fetchData();
                       }

@@ -1,4 +1,5 @@
 import { Task } from '../types';
+import { getAPIUrl } from '../utils/api';
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, eachMonthOfInterval, format, isSameMonth, isSameDay, addMonths, subMonths, addYears, subYears, addWeeks, subWeeks, startOfYear, endOfYear, parseISO, isWithinInterval, differenceInDays } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useState, useEffect, useRef } from 'react';
@@ -433,7 +434,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                 };
 
                 // Save to backend
-                fetch(`/api/tasks/${draggedTask.id}`, {
+                fetch(getAPIUrl(`/tasks/${draggedTask.id}`), {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(updatedTask)
@@ -468,7 +469,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                 };
 
                 // Save to backend
-                fetch(`/api/tasks/${draggedTask.id}`, {
+                fetch(getAPIUrl(`/tasks/${draggedTask.id}`), {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(updatedTask)
@@ -505,7 +506,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
               };
 
               // Save to backend
-              fetch(`/api/tasks/${draggedTask.id}`, {
+              fetch(getAPIUrl(`/tasks/${draggedTask.id}`), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedTask)
