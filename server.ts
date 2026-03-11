@@ -127,6 +127,12 @@ try {
   // Column might already exist
 }
 
+try {
+  db.exec(`ALTER TABLE profiles ADD COLUMN logo LONGTEXT`);
+} catch (e) {
+  // Column might already exist
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
