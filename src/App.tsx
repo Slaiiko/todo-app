@@ -213,7 +213,7 @@ export default function App() {
 
   // Fetch profiles on load
   useEffect(() => {
-    fetch(getAPIUrl('/profiles')
+    fetch(getAPIUrl('/profiles'))
       .then(res => res.json())
       .then(data => {
         setProfiles(data);
