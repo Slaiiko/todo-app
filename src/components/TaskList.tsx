@@ -180,7 +180,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
 
     try {
       console.log('Adding subtask to task', taskId, 'with title:', title);
-      const response = await fetch('/api/subtasks', {
+      const response = await fetch(getAPIUrl('/subtasks'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task_id: taskId, title: title.trim() })
@@ -545,3 +545,5 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
     </div>
   );
 }
+
+

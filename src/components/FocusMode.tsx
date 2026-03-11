@@ -36,7 +36,7 @@ export default function FocusMode({ profile, tasks, onClose }: Props) {
     setSessionCount(c => c + 1);
     
     if (selectedTask) {
-      await fetch('/api/pomodoro', {
+      await fetch(getAPIUrl('/pomodoro'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile_id: profile.id, task_id: selectedTask.id, duration_min: 25 })
@@ -129,3 +129,5 @@ export default function FocusMode({ profile, tasks, onClose }: Props) {
     </div>
   );
 }
+
+

@@ -52,7 +52,7 @@ export default function CommentSection({ entityType, entityId, currentUser }: Pr
 
       // Try to persist to backend
       try {
-        await fetch('/api/comments', {
+        await fetch(getAPIUrl('/comments'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -132,3 +132,5 @@ export default function CommentSection({ entityType, entityId, currentUser }: Pr
     </div>
   );
 }
+
+

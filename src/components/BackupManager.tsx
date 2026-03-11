@@ -41,7 +41,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
 
   const fetchBackups = async () => {
     try {
-      const res = await fetch('/api/backups');
+      const res = await fetch(getAPIUrl('/backups'));
       const data = await res.json();
       setBackups(data);
     } catch (error) {
@@ -73,7 +73,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         }
       }
 
-      const res = await fetch('/api/backups/export', {
+      const res = await fetch(getAPIUrl('/backups/export'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -153,7 +153,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
     try {
       const fileContent = await selectedFile.text();
       
-      const res = await fetch('/api/backups/import', {
+      const res = await fetch(getAPIUrl('/backups/import'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -498,3 +498,5 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
     </div>
   );
 }
+
+

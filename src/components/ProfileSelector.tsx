@@ -42,7 +42,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
     if (!name.trim()) return;
     
     try {
-      const res = await fetch('/api/profiles', {
+      const res = await fetch(getAPIUrl('/profiles'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, avatar, color_theme: 'blue', logo: createLogo || null })
@@ -88,7 +88,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
       });
       if (res.ok) {
         // Refresh profiles list
-        const profilesRes = await fetch('/api/profiles');
+        const profilesRes = await fetch(getAPIUrl('/profiles'));
         const updatedProfiles = await profilesRes.json();
         window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updatedProfiles }));
         setPermanentDeleteConfirmId(null);
@@ -122,7 +122,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
 
       if (response.ok) {
         // Refresh profiles list
-        const profilesRes = await fetch('/api/profiles');
+        const profilesRes = await fetch(getAPIUrl('/profiles'));
         const updatedProfiles = await profilesRes.json();
         // Dispatch event to notify parent component
         window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updatedProfiles }));
@@ -569,3 +569,5 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
     </div>
   );
 }
+
+

@@ -230,3 +230,5 @@ export default function Sidebar({ profile, stats, viewMode, setViewMode, categor
     </aside>
   );
 }
+
+

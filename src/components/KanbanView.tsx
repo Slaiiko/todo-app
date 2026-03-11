@@ -393,3 +393,5 @@ export default function KanbanView({ tasks, onTaskMove, onEdit }: Props) {
     </div>
   );
 }
+
+

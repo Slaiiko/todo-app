@@ -18,6 +18,12 @@ import FocusMode from './components/FocusMode';
 import TaskDetailModal from './components/TaskDetailModal';
 import AppointmentModal from './components/AppointmentModal';
 import AffairesView from './components/AffairesView';
+
+// Helper to support both local and remote backend
+const getAPIUrl = (endpoint: string) => {
+  const base = import.meta.env.VITE_API_BASE_URL || '';
+  return `${base}/api${endpoint}`;
+};
 import SettingsView from './components/SettingsView';
 import { Plus, AlertCircle, X, CheckCircle2, Clock, Calendar } from 'lucide-react';
 
@@ -207,7 +213,7 @@ export default function App() {
 
   // Fetch profiles on load
   useEffect(() => {
-    fetch('/api/profiles')
+    fetch(getAPIUrl('/profiles')
       .then(res => res.json())
       .then(data => {
         setProfiles(data);
@@ -1317,7 +1323,7 @@ export default function App() {
         console.log('🆕 Creating new task with profile_id:', activeProfile.id);
         const taskPayload = { ...data.task, profile_id: activeProfile.id };
         
-        const response = await fetch('/api/tasks', {
+        const response = await fetch(getAPIUrl('/tasks'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(taskPayload)
@@ -1337,7 +1343,7 @@ export default function App() {
         if (!subtask.id || subtask.id < 0) {
           console.log('  → Saving new subtask:', subtask.title);
           try {
-            const res = await fetch('/api/subtasks', {
+            const res = await fetch(getAPIUrl('/subtasks'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1360,7 +1366,7 @@ export default function App() {
         if (!assignee.id || assignee.id < 0) {
           console.log('  → Saving new assignee:', assignee.assignee_name);
           try {
-            const res = await fetch('/api/task-assignees', {
+            const res = await fetch(getAPIUrl('/task-assignees'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1436,7 +1442,7 @@ export default function App() {
         kanban_column: 'To Do'
       };
 
-      const response = await fetch('/api/tasks', {
+      const response = await fetch(getAPIUrl('/tasks'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newTaskData)
@@ -1474,7 +1480,7 @@ export default function App() {
     if (!newCategoryName.trim()) return;
     
     try {
-      const response = await fetch('/api/categories', {
+      const response = await fetch(getAPIUrl('/categories'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1513,7 +1519,7 @@ export default function App() {
   };
 
   const handleAddAffaire = async (affaireData: Partial<Affaire>) => {
-    await fetch('/api/affaires', {
+    await fetch(getAPIUrl('/affaires'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...affaireData, profile_id: activeProfile?.id })
@@ -1628,7 +1634,7 @@ export default function App() {
       if (!response.ok) throw new Error(`Archive failed: ${response.status}`);
       
       // Refresh profiles list
-      const profilesRes = await fetch('/api/profiles');
+      const profilesRes = await fetch(getAPIUrl('/profiles'));
       const updatedProfiles = await profilesRes.json();
       setProfiles(updatedProfiles);
     } catch (error) {
@@ -1649,7 +1655,7 @@ export default function App() {
       if (!response.ok) throw new Error(`Restore failed: ${response.status}`);
       
       // Refresh profiles list
-      const profilesRes = await fetch('/api/profiles');
+      const profilesRes = await fetch(getAPIUrl('/profiles'));
       const updatedProfiles = await profilesRes.json();
       setProfiles(updatedProfiles);
     } catch (error) {
@@ -1684,7 +1690,7 @@ export default function App() {
         });
       } else {
         // Create new appointment
-        await fetch('/api/appointments', {
+        await fetch(getAPIUrl('/appointments'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1764,7 +1770,7 @@ export default function App() {
         }}
         onAddCategory={async (name: string, color: string) => {
           try {
-            const response = await fetch('/api/categories', {
+            const response = await fetch(getAPIUrl('/categories'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -2002,7 +2008,7 @@ export default function App() {
                   }}
                   onAddCategory={async (name: string, color: string) => {
                     try {
-                      const response = await fetch('/api/categories', {
+                      const response = await fetch(getAPIUrl('/categories'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -2273,4 +2279,6 @@ export default function App() {
     </div>
   );
 }
+
+
 

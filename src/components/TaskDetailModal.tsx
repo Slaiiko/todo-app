@@ -102,7 +102,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
 
     if (task?.id) {
       try {
-        const res = await fetch('/api/task-assignees', {
+        const res = await fetch(getAPIUrl('/task-assignees'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -190,7 +190,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
     
     if (task?.id) {
       try {
-        const res = await fetch('/api/subtasks', {
+        const res = await fetch(getAPIUrl('/subtasks'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -650,3 +650,5 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
     </div>
   );
 }
+
+

@@ -79,3 +79,5 @@ export default function RecycleBin({ tasks, onRestore, onDeletePermanent, onEmpt
     </div>
   );
 }
+
+

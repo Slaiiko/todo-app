@@ -352,3 +352,5 @@ const TaskRowComponent = ({
 };
 
 export default memo(TaskRowComponent);
+
+

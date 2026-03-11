@@ -567,7 +567,7 @@ export default function SettingsView({
         
         // Fetch updated profiles and dispatch event
         try {
-          const profilesResponse = await fetch('/api/profiles');
+          const profilesResponse = await fetch(getAPIUrl('/profiles'));
           const updatedProfiles = await profilesResponse.json();
           window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updatedProfiles }));
         } catch (error) {
@@ -606,7 +606,7 @@ export default function SettingsView({
       if (response.ok) {
         // Fetch updated profiles and dispatch event
         try {
-          const profilesResponse = await fetch('/api/profiles');
+          const profilesResponse = await fetch(getAPIUrl('/profiles'));
           const updatedProfiles = await profilesResponse.json();
           window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updatedProfiles }));
         } catch (error) {
@@ -648,7 +648,7 @@ export default function SettingsView({
       if (response.ok) {
         // Fetch updated profiles and dispatch event
         try {
-          const profilesResponse = await fetch('/api/profiles');
+          const profilesResponse = await fetch(getAPIUrl('/profiles'));
           const updatedProfiles = await profilesResponse.json();
           window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updatedProfiles }));
         } catch (error) {
@@ -1228,3 +1228,5 @@ export default function SettingsView({
     </div>
   );
 }
+
+

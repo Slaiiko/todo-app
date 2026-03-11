@@ -432,3 +432,5 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
     </AnimatePresence>
   );
 }
+
+
