@@ -1,15 +1,46 @@
-import { Task } from '../types';
+import { useMemo, useState } from 'react';
+import { Appointment, Task } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format, subDays, isSameDay, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Target, Flame, CheckCircle2, Clock } from 'lucide-react';
+import { Target, Flame, CheckCircle2, Clock, PauseCircle, CalendarDays, ListTodo } from 'lucide-react';
 
 interface Props {
   stats: { completedToday: number; pomodorosToday: number };
   tasks: Task[];
+  appointments: Appointment[];
+  onTaskValidate: (task: Task) => void;
+  onTaskPause: (task: Task) => void;
+  onOpenTaskDetail: (task: Task) => void;
+  onOpenAppointmentDetail: (appointment: Appointment) => void;
 }
 
-export default function StatsView({ stats, tasks }: Props) {
+type TodayItem =
+  | { kind: 'task'; sortValue: string; task: Task }
+  | { kind: 'appointment'; sortValue: string; appointment: Appointment };
+
+const toLocalDateValue = (isoDate: string | null | undefined): Date | null => {
+  if (!isoDate) return null;
+  const parsed = parseISO(isoDate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatTimeLabel = (isoDate: string | null | undefined): string => {
+  const dateValue = toLocalDateValue(isoDate);
+  return dateValue ? format(dateValue, 'HH:mm') : '—';
+};
+
+export default function StatsView({
+  stats,
+  tasks,
+  appointments,
+  onTaskValidate,
+  onTaskPause,
+  onOpenTaskDetail,
+  onOpenAppointmentDetail
+}: Props) {
+  const [selectedItem, setSelectedItem] = useState<TodayItem | null>(null);
+
   // Generate last 7 days data
   const last7Days = Array.from({ length: 7 }).map((_, i) => {
     const date = subDays(new Date(), 6 - i);
@@ -24,8 +55,126 @@ export default function StatsView({ stats, tasks }: Props) {
   const completionRate = tasks.length > 0 ? Math.round((totalCompleted / tasks.length) * 100) : 0;
   const overdueCount = tasks.filter(t => !t.is_complete && t.due_date && new Date(t.due_date) < new Date()).length;
 
+  const todayItems = useMemo(() => {
+    const today = new Date();
+
+    const todayTasks: TodayItem[] = tasks
+      .filter(task => {
+        if (task.is_complete) return false;
+        const startDate = toLocalDateValue(task.start_date);
+        const dueDate = toLocalDateValue(task.due_date);
+        return Boolean((startDate && isSameDay(startDate, today)) || (dueDate && isSameDay(dueDate, today)));
+      })
+      .map(task => ({
+        kind: 'task' as const,
+        sortValue: task.start_time || task.due_date || task.start_date || '23:59',
+        task
+      }));
+
+    const todayAppointments: TodayItem[] = appointments
+      .filter(appointment => {
+        const start = toLocalDateValue(appointment.start_time);
+        return Boolean(start && isSameDay(start, today));
+      })
+      .map(appointment => ({
+        kind: 'appointment' as const,
+        sortValue: appointment.start_time,
+        appointment
+      }));
+
+    return [...todayTasks, ...todayAppointments].sort((a, b) => a.sortValue.localeCompare(b.sortValue));
+  }, [tasks, appointments]);
+
   return (
     <div className="max-w-5xl mx-auto space-y-8">
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-zinc-900">À réaliser aujourd&apos;hui</h2>
+            <p className="text-zinc-500 mt-1">Tâches et rendez-vous de la journée</p>
+          </div>
+          <div className="text-sm text-zinc-500 font-medium">{todayItems.length} élément{todayItems.length > 1 ? 's' : ''}</div>
+        </div>
+
+        {todayItems.length === 0 ? (
+          <div className="text-zinc-500 text-sm bg-zinc-50 border border-zinc-200 rounded-xl p-4">
+            Aucun élément planifié pour aujourd&apos;hui.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {todayItems.map((item, index) => {
+              if (item.kind === 'task') {
+                const task = item.task;
+                return (
+                  <div key={`task-${task.id}-${index}`} className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-700">
+                            <ListTodo className="w-3 h-3" /> Tâche
+                          </span>
+                          <span className="text-xs text-zinc-500">{formatTimeLabel(task.start_date || task.due_date)}</span>
+                        </div>
+                        <p className="font-semibold text-zinc-900 truncate">{task.title}</p>
+                        <p className="text-xs text-zinc-500 mt-1">Priorité: {task.priority}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => onTaskValidate(task)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                        >
+                          Valider
+                        </button>
+                        <button
+                          onClick={() => onTaskPause(task)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                        >
+                          Pause
+                        </button>
+                        <button
+                          onClick={() => setSelectedItem(item)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                        >
+                          Détail
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              const appointment = item.appointment;
+              return (
+                <div key={`appointment-${appointment.id}-${index}`} className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
+                          <CalendarDays className="w-3 h-3" /> Rendez-vous
+                        </span>
+                        <span className="text-xs text-zinc-500">
+                          {formatTimeLabel(appointment.start_time)} - {formatTimeLabel(appointment.end_time)}
+                        </span>
+                      </div>
+                      <p className="font-semibold text-zinc-900 truncate">{appointment.title}</p>
+                      <p className="text-xs text-zinc-500 mt-1 truncate">{appointment.location || 'Sans lieu'}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setSelectedItem(item)}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 transition-colors"
+                      >
+                        Détail
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200 flex flex-col items-center justify-center text-center">
           <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mb-4">
@@ -84,6 +233,66 @@ export default function StatsView({ stats, tasks }: Props) {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {selectedItem && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setSelectedItem(null)}>
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-zinc-200 p-6" onClick={(e) => e.stopPropagation()}>
+            {selectedItem.kind === 'task' ? (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <ListTodo className="w-5 h-5 text-indigo-600" />
+                  <h3 className="text-lg font-bold text-zinc-900">Détail de la tâche</h3>
+                </div>
+                <p className="text-zinc-900 font-semibold mb-2">{selectedItem.task.title}</p>
+                <p className="text-sm text-zinc-600 mb-1">Priorité: {selectedItem.task.priority}</p>
+                <p className="text-sm text-zinc-600 mb-1">Échéance: {selectedItem.task.due_date ? format(parseISO(selectedItem.task.due_date), 'dd/MM/yyyy HH:mm') : 'Non définie'}</p>
+                <p className="text-sm text-zinc-600 mb-4">Description: {selectedItem.task.description_md || 'Aucune description'}</p>
+
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => onTaskPause(selectedItem.task)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors inline-flex items-center gap-1"
+                  >
+                    <PauseCircle className="w-4 h-4" /> Pause
+                  </button>
+                  <button
+                    onClick={() => onTaskValidate(selectedItem.task)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                  >
+                    Valider
+                  </button>
+                  <button
+                    onClick={() => onOpenTaskDetail(selectedItem.task)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                  >
+                    Ouvrir
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <CalendarDays className="w-5 h-5 text-purple-600" />
+                  <h3 className="text-lg font-bold text-zinc-900">Détail du rendez-vous</h3>
+                </div>
+                <p className="text-zinc-900 font-semibold mb-2">{selectedItem.appointment.title}</p>
+                <p className="text-sm text-zinc-600 mb-1">Horaire: {formatTimeLabel(selectedItem.appointment.start_time)} - {formatTimeLabel(selectedItem.appointment.end_time)}</p>
+                <p className="text-sm text-zinc-600 mb-1">Lieu: {selectedItem.appointment.location || 'Sans lieu'}</p>
+                <p className="text-sm text-zinc-600 mb-4">Description: {selectedItem.appointment.description || 'Aucune description'}</p>
+
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => onOpenAppointmentDetail(selectedItem.appointment)}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+                  >
+                    Ouvrir
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

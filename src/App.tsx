@@ -1470,6 +1470,20 @@ export default function App() {
     }
   };
 
+  const handleTaskPause = async (task: Task) => {
+    try {
+      const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kanban_column: 'To Do' })
+      });
+      if (!response.ok) throw new Error(`Pause failed: ${response.status}`);
+      await fetchData();
+    } catch (error) {
+      console.error('Failed to pause task:', error);
+    }
+  };
+
   const handleAddCategory = async () => {
     if (!newCategoryName.trim()) return;
     
@@ -1893,7 +1907,21 @@ export default function App() {
                 />
               )}
               {viewMode === 'stats' && (
-                <StatsView stats={stats} tasks={tasks} />
+                <StatsView
+                  stats={stats}
+                  tasks={tasks}
+                  appointments={appointments}
+                  onTaskValidate={(task) => handleTaskComplete(task, true)}
+                  onTaskPause={handleTaskPause}
+                  onOpenTaskDetail={(task) => {
+                    setSelectedTask(task);
+                    setIsTaskModalOpen(true);
+                  }}
+                  onOpenAppointmentDetail={(appointment) => {
+                    setSelectedAppointment(appointment);
+                    setIsAppointmentModalOpen(true);
+                  }}
+                />
               )}
               {viewMode === 'affaires' && (
                 <AffairesView 
