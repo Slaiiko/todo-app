@@ -201,13 +201,29 @@ export class BackupService {
           taskMap.set(t.id, info.lastInsertRowid);
         }
 
-        // Insert subtasks
-        for (const s of backupData.subtasks) {
-          if (taskMap.has(s.task_id)) {
-            this.db.prepare("INSERT INTO subtasks (task_id, title, is_complete) VALUES (?, ?, ?)").run(
-              taskMap.get(s.task_id), s.title, s.is_complete
+        // Insert subtasks (handle parent_subtask_id hierarchy with iterative approach)
+        const subtaskMap = new Map<number, number>();
+        const pendingSubtasks = [...(backupData.subtasks || [])];
+        let iterations = 0;
+        while (pendingSubtasks.length > 0 && iterations < 20) {
+          iterations++;
+          let progressed = false;
+          for (let i = pendingSubtasks.length - 1; i >= 0; i--) {
+            const s = pendingSubtasks[i];
+            if (!taskMap.has(s.task_id)) { pendingSubtasks.splice(i, 1); progressed = true; continue; }
+            if (s.parent_subtask_id && !subtaskMap.has(s.parent_subtask_id)) continue;
+            const info = this.db.prepare(
+              "INSERT INTO subtasks (task_id, parent_subtask_id, title, is_complete, time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?)"
+            ).run(
+              taskMap.get(s.task_id),
+              s.parent_subtask_id ? subtaskMap.get(s.parent_subtask_id) || null : null,
+              s.title, s.is_complete, s.time_spent || 0, s.completed_at || null
             );
+            subtaskMap.set(s.id, info.lastInsertRowid as number);
+            pendingSubtasks.splice(i, 1);
+            progressed = true;
           }
+          if (!progressed) break;
         }
 
         // Insert pomodoro
