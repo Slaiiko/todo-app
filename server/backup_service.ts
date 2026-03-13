@@ -157,8 +157,11 @@ export class BackupService {
         // Insert profiles
         const profileMap = new Map();
         for (const p of backupData.profiles) {
-          const info = this.db.prepare("INSERT INTO profiles (name, avatar, color_theme, pin_hash, xp, level, created_at, font_family, text_color, app_background_theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
-            p.name, p.avatar, p.color_theme, p.pin_hash, p.xp, p.level, p.created_at, p.font_family || 'system', p.text_color || '#000000', p.app_background_theme || 'theme-1'
+          const info = this.db.prepare("INSERT INTO profiles (name, avatar, color_theme, app_background_theme, is_archived, logo, custom_background_image, font_family, text_color, custom_labels, pin_hash, xp, level, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+            p.name, p.avatar, p.color_theme, p.app_background_theme || 'theme-1',
+            p.is_archived || 0, p.logo || null, p.custom_background_image || null,
+            p.font_family || 'system', p.text_color || '#000000', p.custom_labels || null,
+            p.pin_hash, p.xp, p.level, p.created_at
           );
           profileMap.set(p.id, info.lastInsertRowid);
         }
@@ -185,12 +188,15 @@ export class BackupService {
         const taskMap = new Map();
         for (const t of backupData.tasks) {
           const info = this.db.prepare(`
-            INSERT INTO tasks (profile_id, title, description_md, due_date, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, recurrence, order_index, kanban_column, created_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
-            profileMap.get(t.profile_id), t.title, t.description_md, t.due_date, t.priority, 
-            categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, 
-            t.is_complete, t.is_archived, t.is_deleted, t.recurrence, t.order_index, t.kanban_column, t.created_at, t.completed_at
+            profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date,
+            t.start_time || null, t.end_time || null, t.priority,
+            categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null,
+            t.is_complete, t.is_archived, t.is_deleted, t.bg_color || null, t.time_spent || 0,
+            t.recurrence, t.recurrence_type || null, t.recurrence_end_date || null,
+            t.order_index, t.kanban_column, t.created_at, t.completed_at
           );
           taskMap.set(t.id, info.lastInsertRowid);
         }
