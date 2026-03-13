@@ -1403,7 +1403,22 @@ export default function App() {
         });
         if (!response.ok) {
           const errText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errText}`);
+          // Try to parse JSON error for a cleaner message
+          let errMsg = `HTTP ${response.status}: ${errText}`;
+          try {
+            const errJson = JSON.parse(errText);
+            if (errJson.error) errMsg = errJson.error;
+          } catch (_) { /* not JSON */ }
+
+          // If profile not found, auto-refresh profiles and retry once
+          if (errMsg.includes('not found') && errMsg.toLowerCase().includes('profile')) {
+            console.warn('⚠️ Profile mismatch detected — refreshing profiles...');
+            await refreshProfilesAfterRestore();
+            // Retry with updated activeProfile from state is complex; just inform user
+            throw new Error(`Profil introuvable sur le serveur. Veuillez rafraîchir la page et réessayer.`);
+          }
+
+          throw new Error(errMsg);
         }
         const newTask = await response.json();
         console.log('✅ Task created with ID:', newTask.id);

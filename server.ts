@@ -620,15 +620,49 @@ async function startServer() {
   });
 
   app.post("/api/tasks", (req, res) => {
-    const { profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date } = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(profile_id, title, description_md, start_date, due_date, start_time || null, end_time || null, priority || 'Medium', category_id, kanban_column || 'To Do', affaire_id, recurrence_type || null, recurrence_end_date || null);
-    
-    const newTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(info.lastInsertRowid);
-    res.json({ ...newTask, subtasks: [] });
+    try {
+      const { profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date } = req.body;
+
+      // Validate required fields
+      if (!title || String(title).trim() === '') {
+        return res.status(400).json({ error: 'Title is required' });
+      }
+      if (!profile_id) {
+        return res.status(400).json({ error: 'profile_id is required' });
+      }
+
+      // Verify profile exists
+      const profileExists = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profile_id);
+      if (!profileExists) {
+        return res.status(400).json({ error: `Profile ${profile_id} not found. Please refresh the page.` });
+      }
+
+      const stmt = db.prepare(`
+        INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        profile_id,
+        String(title).trim(),
+        description_md || null,
+        start_date || null,
+        due_date || null,
+        start_time || null,
+        end_time || null,
+        priority || 'Medium',
+        category_id || null,
+        kanban_column || 'To Do',
+        affaire_id || null,
+        recurrence_type || null,
+        recurrence_end_date || null
+      );
+
+      const newTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(info.lastInsertRowid);
+      res.json({ ...newTask as object, subtasks: [] });
+    } catch (err: any) {
+      console.error('❌ POST /api/tasks error:', err);
+      res.status(500).json({ error: err.message || 'Failed to create task' });
+    }
   });
 
   app.put("/api/tasks/:id", (req, res) => {
