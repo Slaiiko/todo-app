@@ -133,6 +133,7 @@ function adaptColorByLuminosity(selectedColor: string, referenceColor: string): 
 export default function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [trashedTasks, setTrashedTasks] = useState<Task[]>([]);
@@ -207,15 +208,50 @@ export default function App() {
 
   // Fetch profiles on load
   useEffect(() => {
-    fetch(getAPIUrl('/profiles'))
-      .then(res => res.json())
-      .then(data => {
-        setProfiles(data);
-        if (data.length > 0) {
-          setActiveProfile(data[0]);
+    let isMounted = true;
+
+    const loadProfiles = async () => {
+      try {
+        const res = await fetch(getAPIUrl('/profiles'));
+        if (!res.ok) {
+          throw new Error(`Failed to fetch profiles: ${res.status}`);
         }
-      });
+
+        const data = await res.json();
+        const safeProfiles = Array.isArray(data) ? data : [];
+        if (!isMounted) return;
+
+        setProfiles(safeProfiles);
+
+        if (safeProfiles.length > 0) {
+          const savedProfileId = Number(localStorage.getItem('activeProfileId'));
+          const savedProfile = Number.isFinite(savedProfileId)
+            ? safeProfiles.find((p: Profile) => p.id === savedProfileId)
+            : null;
+          const fallbackProfile = safeProfiles.find((p: Profile) => !p.is_archived) || safeProfiles[0];
+          setActiveProfile(savedProfile || fallbackProfile || null);
+        }
+      } catch (error) {
+        console.error('Failed to load profiles:', error);
+      } finally {
+        if (isMounted) {
+          setProfilesLoaded(true);
+        }
+      }
+    };
+
+    loadProfiles();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  useEffect(() => {
+    if (activeProfile?.id != null) {
+      localStorage.setItem('activeProfileId', String(activeProfile.id));
+    }
+  }, [activeProfile?.id]);
 
   // Listen for profile updates (from ProfileSelector modal)
   useEffect(() => {
@@ -886,13 +922,56 @@ export default function App() {
     ]);
     
     const tasksData = await tasksRes.json();
-    setTasks(tasksData);
+    const normalizedTasksData = (tasksData || []).map((task: any) => ({
+      ...task,
+      subtasks: (task.subtasks || []).map((subtask: any) => ({
+        ...subtask,
+        id: Number(subtask.id),
+        task_id: Number(subtask.task_id),
+        parent_subtask_id: (subtask.parent_subtask_id ?? subtask.parentSubtaskId) == null
+          ? null
+          : Number(subtask.parent_subtask_id ?? subtask.parentSubtaskId)
+      }))
+    }));
+    setTasks(normalizedTasksData);
     setArchivedTasks(await archiveRes.json());
     setTrashedTasks(await trashRes.json());
     setCategories(await categoriesRes.json());
     setAffaires(await affairesRes.json());
     setStats(await statsRes.json());
     setAppointments(await appointmentsRes.json());
+  };
+
+  const refreshProfilesAfterRestore = async () => {
+    try {
+      const res = await fetch(getAPIUrl('/profiles'));
+      if (!res.ok) {
+        throw new Error(`Failed to refresh profiles: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const updatedProfiles = Array.isArray(data) ? data : [];
+      setProfiles(updatedProfiles);
+
+      if (updatedProfiles.length === 0) {
+        setActiveProfile(null);
+        localStorage.removeItem('activeProfileId');
+        return;
+      }
+
+      const currentActive = activeProfile
+        ? updatedProfiles.find((p: Profile) => p.id === activeProfile.id)
+        : null;
+      const fallbackProfile = updatedProfiles.find((p: Profile) => !p.is_archived) || updatedProfiles[0];
+      const nextActiveProfile = currentActive || fallbackProfile;
+
+      setActiveProfile(nextActiveProfile || null);
+      if (nextActiveProfile) {
+        localStorage.setItem('activeProfileId', String(nextActiveProfile.id));
+      }
+    } catch (error) {
+      console.error('Failed to refresh profiles after restore:', error);
+    }
   };
 
   // Helper function to generate recurring task occurrences
@@ -1333,8 +1412,25 @@ export default function App() {
 
       // STEP 2: Save any new subtasks
       console.log('📋 Processing subtasks:', data.subtasks.length);
-      for (const subtask of data.subtasks) {
-        if (!subtask.id || subtask.id < 0) {
+      const pendingSubtasks = data.subtasks.filter((subtask) => !subtask.id || subtask.id < 0);
+      const createdSubtaskIds = new Map<number, number>();
+
+      while (pendingSubtasks.length > 0) {
+        let savedInThisPass = 0;
+
+        for (let index = pendingSubtasks.length - 1; index >= 0; index -= 1) {
+          const subtask = pendingSubtasks[index];
+          const rawParentId = subtask.parent_subtask_id ?? null;
+          const resolvedParentId = rawParentId == null
+            ? null
+            : rawParentId > 0
+              ? rawParentId
+              : createdSubtaskIds.get(rawParentId);
+
+          if (rawParentId != null && resolvedParentId == null) {
+            continue;
+          }
+
           console.log('  → Saving new subtask:', subtask.title);
           try {
             const res = await fetch(getAPIUrl('/subtasks'), {
@@ -1343,14 +1439,28 @@ export default function App() {
               body: JSON.stringify({
                 task_id: taskId,
                 title: subtask.title,
-                assignee_id: subtask.assignee_id || null
+                assignee_id: subtask.assignee_id || null,
+                parent_subtask_id: resolvedParentId,
+                parentSubtaskId: resolvedParentId
               })
             });
             if (!res.ok) throw new Error(`Subtask HTTP ${res.status}`);
+
+            const savedSubtask = await res.json();
+            if (subtask.id && subtask.id < 0) {
+              createdSubtaskIds.set(subtask.id, Number(savedSubtask.id));
+            }
+
+            pendingSubtasks.splice(index, 1);
+            savedInThisPass += 1;
             console.log('    ✅ Subtask saved');
           } catch (e) {
             console.error('    ❌ Could not save subtask:', e);
           }
+        }
+
+        if (savedInThisPass === 0) {
+          throw new Error('Impossible de sauvegarder la hiérarchie des sous-tâches');
         }
       }
 
@@ -1467,20 +1577,6 @@ export default function App() {
       await fetchData();
     } catch (error) {
       console.error('Failed to complete task:', error);
-    }
-  };
-
-  const handleTaskPause = async (task: Task) => {
-    try {
-      const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kanban_column: 'To Do' })
-      });
-      if (!response.ok) throw new Error(`Pause failed: ${response.status}`);
-      await fetchData();
-    } catch (error) {
-      console.error('Failed to pause task:', error);
     }
   };
 
@@ -1744,12 +1840,27 @@ export default function App() {
     return defaultLabels[viewMode] || viewMode;
   };
 
+  if (!profilesLoaded) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-zinc-50 text-zinc-700">
+        Chargement des profils...
+      </div>
+    );
+  }
+
   if (!activeProfile) {
     return (
       <ProfileSelector 
         profiles={profiles} 
-        onSelect={setActiveProfile} 
-        onCreateProfile={(p) => setProfiles([...profiles, p])}
+        onSelect={(profile) => {
+          setActiveProfile(profile);
+          localStorage.setItem('activeProfileId', String(profile.id));
+        }} 
+        onCreateProfile={(p) => {
+          setProfiles((current) => [...current, p]);
+          setActiveProfile(p);
+          localStorage.setItem('activeProfileId', String(p.id));
+        }}
         onDeleteProfile={handleDeleteProfile}
         onRestoreProfile={handleRestoreProfile}
       />
@@ -1912,7 +2023,7 @@ export default function App() {
                   tasks={tasks}
                   appointments={appointments}
                   onTaskValidate={(task) => handleTaskComplete(task, true)}
-                  onTaskPause={handleTaskPause}
+                  onSubtaskValidate={(task, subtaskId, subtaskTitle) => handleOpenValidationModal(task.id, task.title, subtaskId, subtaskTitle)}
                   onOpenTaskDetail={(task) => {
                     setSelectedTask(task);
                     setIsTaskModalOpen(true);
@@ -1954,8 +2065,8 @@ export default function App() {
               {viewMode === 'backups' && (
                 <BackupManager 
                   profileId={activeProfile.id} 
-                  onRestoreComplete={() => {
-                    fetchData();
+                  onRestoreComplete={async () => {
+                    await refreshProfilesAfterRestore();
                   }}
                 />
               )}

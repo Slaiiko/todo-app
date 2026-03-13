@@ -14,6 +14,8 @@ interface Props {
 
 export default function ProfileSelector({ profiles, onSelect, onCreateProfile, onDeleteProfile, onRestoreProfile }: Props) {
   const [isCreating, setIsCreating] = useState(false);
+  const [isCreatingProfile, setIsCreatingProfile] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [avatar, setAvatar] = useState('👤');
   const [createLogo, setCreateLogo] = useState('');
@@ -40,23 +42,45 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setCreateError('Le nom du profil est requis.');
+      return;
+    }
     
     try {
+      setIsCreatingProfile(true);
+      setCreateError(null);
       const res = await fetch(getAPIUrl('/profiles'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, avatar, color_theme: 'blue', logo: createLogo || null })
+        body: JSON.stringify({ name: name.trim(), avatar, color_theme: 'blue', logo: createLogo || null })
       });
       
       if (!res.ok) {
-        console.error('Failed to create profile');
+        const rawError = await res.text();
+        setCreateError(rawError || 'Impossible de créer le profil.');
+        console.error('Failed to create profile:', rawError);
         return;
       }
       
       const newProfile = await res.json();
-      onCreateProfile(newProfile);
-      onSelect(newProfile);
+      let profileToSelect = newProfile;
+      try {
+        const profilesRes = await fetch(getAPIUrl('/profiles'));
+        if (profilesRes.ok) {
+          const updatedProfiles = await profilesRes.json();
+          if (Array.isArray(updatedProfiles)) {
+            window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updatedProfiles }));
+            const persistedProfile = updatedProfiles.find((p: Profile) => p.id === newProfile.id);
+            profileToSelect = persistedProfile || newProfile;
+          }
+        }
+      } catch (syncError) {
+        console.warn('Failed to resync profiles after creation:', syncError);
+      }
+
+      onCreateProfile(profileToSelect);
+      onSelect(profileToSelect);
       setIsCreating(false);
       setName('');
       setAvatar('👤');
@@ -64,6 +88,9 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
       setCreateLogoUrl('');
     } catch (error) {
       console.error('Error creating profile:', error);
+      setCreateError('Erreur réseau lors de la création du profil.');
+    } finally {
+      setIsCreatingProfile(false);
     }
   };
 
@@ -258,11 +285,17 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
               <input
                 type="text"
                 value={name}
-                onChange={e => setName(e.target.value)}
+                onChange={e => {
+                  setName(e.target.value);
+                  if (createError) setCreateError(null);
+                }}
                 placeholder="Your Name"
                 className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 w-full"
                 autoFocus
               />
+              {createError && (
+                <p className="text-xs text-red-400 w-full">{createError}</p>
+              )}
               <div className="w-full space-y-2">
                 <label className="text-xs font-semibold text-zinc-400">Logo (optionnel)</label>
                 <input
@@ -309,13 +342,17 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
               </div>
               <div className="flex gap-2 w-full">
                 <button type="button" onClick={() => {
+                  if (isCreatingProfile) return;
                   setIsCreating(false);
                   setName('');
                   setAvatar('👤');
                   setCreateLogo('');
                   setCreateLogoUrl('');
+                  setCreateError(null);
                 }} className="flex-1 py-2 text-zinc-400 hover:text-white">Cancel</button>
-                <button type="submit" className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">Create</button>
+                <button type="submit" disabled={isCreatingProfile} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium disabled:opacity-60 disabled:cursor-not-allowed">
+                  {isCreatingProfile ? 'Création...' : 'Create'}
+                </button>
               </div>
             </motion.form>
           )}

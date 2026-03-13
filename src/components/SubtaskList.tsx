@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Subtask } from '../types';
-import { CheckCircle2, Circle, Trash2, MessageCircle, Send, X, ChevronDown, Pencil, AlertCircle, Clock } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, MessageCircle, Send, X, ChevronDown, Pencil, AlertCircle, Clock, Plus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { getAPIUrl } from '../utils/api';
 
 interface Props {
   subtasks: Subtask[];
@@ -13,11 +14,14 @@ interface Props {
   onDeleteSubtask: (id: number) => void;
   onEditTask: () => void;
   onAddComment?: (subtaskId: number) => void;
-  onAddSubtask?: (taskId: number, title: string) => Promise<void>;
+  onAddSubtask?: (taskId: number, title: string, parentSubtaskId?: number) => Promise<void>;
   onAddAlert?: (taskId: number, taskTitle: string, subtaskId?: number, subtaskTitle?: string) => void;
   onValidateSubtask?: (taskId: number, taskTitle: string, subtaskId: number, subtaskTitle: string) => void;
   initialShowAddForm?: boolean;
   currentUserName?: string;
+  parentSubtaskId?: number | null;
+  level?: number;
+  numberPrefix?: string;
 }
 
 export default function SubtaskList({ 
@@ -32,8 +36,25 @@ export default function SubtaskList({
   onAddAlert,
   onValidateSubtask,
   initialShowAddForm,
-  currentUserName
+  currentUserName,
+  parentSubtaskId = null,
+  level = 0,
+  numberPrefix = ''
 }: Props) {
+  const getSubtaskId = (subtask: Subtask): number | null => {
+    const rawId = (subtask as any).id;
+    if (rawId == null) return null;
+    const normalizedId = Number(rawId);
+    return Number.isFinite(normalizedId) ? normalizedId : null;
+  };
+
+  const getParentSubtaskId = (subtask: Subtask): number | null => {
+    const rawParentId = (subtask as any).parent_subtask_id ?? (subtask as any).parentSubtaskId ?? null;
+    if (rawParentId == null) return null;
+    const normalizedParentId = Number(rawParentId);
+    return Number.isFinite(normalizedParentId) ? normalizedParentId : null;
+  };
+
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [commentsMap, setCommentsMap] = useState<Record<number, any[]>>({});
@@ -41,6 +62,7 @@ export default function SubtaskList({
   const [newComments, setNewComments] = useState<Record<number, string>>({});
   const [showAllComments, setShowAllComments] = useState<Record<number, boolean>>({});
   const [expandedComments, setExpandedComments] = useState<Record<number, boolean>>({});
+  const [expandedChildren, setExpandedChildren] = useState<Record<number, boolean>>({});
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [editingSubtaskId, setEditingSubtaskId] = useState<number | null>(null);
@@ -48,6 +70,10 @@ export default function SubtaskList({
   const [showAddForm, setShowAddForm] = useState(initialShowAddForm || false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const displayedSubtasks = useMemo(
+    () => (subtasks || []).filter((subtask) => getParentSubtaskId(subtask) === parentSubtaskId),
+    [subtasks, parentSubtaskId]
+  );
 
   // Load comments from localStorage
   useEffect(() => {
@@ -160,14 +186,25 @@ export default function SubtaskList({
     }
   };
 
-  const handleAddSubtaskSubmit = async () => {
+  const handleAddSubtaskSubmit = async (targetParentSubtaskId?: number | null) => {
     if (!newSubtaskTitle.trim() || !onAddSubtask) return;
     
     setIsAddingSubtask(true);
     try {
-      await onAddSubtask(taskId, newSubtaskTitle.trim());
+      const resolvedParentSubtaskId = targetParentSubtaskId !== undefined
+        ? targetParentSubtaskId
+        : parentSubtaskId;
+
+      await onAddSubtask(taskId, newSubtaskTitle.trim(), resolvedParentSubtaskId ?? undefined);
       setNewSubtaskTitle('');
       setShowAddForm(false);
+      setExpandedId(null);
+      if (targetParentSubtaskId != null) {
+        setExpandedChildren((current) => ({
+          ...current,
+          [targetParentSubtaskId]: true
+        }));
+      }
     } catch (e) {
       console.error('Error adding subtask:', e);
     } finally {
@@ -176,7 +213,7 @@ export default function SubtaskList({
   };
 
   // Show nothing if no subtasks AND no form to add one
-  if ((!subtasks || subtasks.length === 0) && !showAddForm) {
+  if (displayedSubtasks.length === 0 && !showAddForm) {
     return null;
   }
 
@@ -185,11 +222,15 @@ export default function SubtaskList({
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: "auto" }}
       exit={{ opacity: 0, height: 0 }}
-      className="mt-3 ml-8 space-y-2"
+      className={level === 0 ? "mt-3 ml-8 space-y-2" : "mt-2 ml-6 pl-3 border-l border-zinc-200 space-y-2"}
     >
-      {subtasks.map((subtask) => {
+      {displayedSubtasks.map((subtask, index) => {
+        const subtaskId = getSubtaskId(subtask);
+        if (subtaskId == null) return null;
         const comments = commentsMap[subtask.id] || [];
         const showForm = showCommentForm === subtask.id;
+        const hasChildSubtasks = subtasks.some((candidate) => getParentSubtaskId(candidate) === subtaskId);
+        const hierarchyNumber = numberPrefix ? `${numberPrefix}.${index + 1}` : `${index + 1}`;
 
         return (
         <motion.div
@@ -278,13 +319,41 @@ export default function SubtaskList({
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    <p 
-                      className={`text-sm transition-colors ${
-                        subtask.is_complete ? 'line-through text-zinc-400' : 'text-zinc-700'
-                      }`}
-                    >
-                      {subtask.title}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      {hasChildSubtasks && (
+                        <motion.button
+                          type="button"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={(e: React.MouseEvent) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setExpandedChildren((current) => ({
+                              ...current,
+                              [subtaskId]: !current[subtaskId]
+                            }));
+                          }}
+                          className={`shrink-0 p-0.5 rounded transition-colors ${
+                            expandedChildren[subtaskId] ? 'text-indigo-600 bg-indigo-50' : 'text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50'
+                          }`}
+                          title={expandedChildren[subtaskId] ? 'Masquer les sous-sous-tâches' : 'Afficher les sous-sous-tâches'}
+                        >
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expandedChildren[subtaskId] ? 'rotate-180' : ''}`} />
+                        </motion.button>
+                      )}
+
+                      <span className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                        {hierarchyNumber}
+                      </span>
+
+                      <p 
+                        className={`text-sm transition-colors ${
+                          subtask.is_complete ? 'line-through text-zinc-400' : 'text-zinc-700'
+                        }`}
+                      >
+                        {subtask.title}
+                      </p>
+                    </div>
                     {subtask.time_spent ? (() => {
                       const timeSpent = typeof subtask.time_spent === 'string' ? parseInt(subtask.time_spent, 10) : subtask.time_spent;
                       if (!isNaN(timeSpent) && timeSpent > 0) {
@@ -306,11 +375,32 @@ export default function SubtaskList({
                 )}
               </div>
 
-              <div 
-                className={`flex items-center gap-1.5 shrink-0 transition-opacity pointer-events-auto ${
-                  hoveredId === subtask.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                }`}
-              >
+              <div className="flex items-center gap-1.5 shrink-0 pointer-events-auto">
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={(e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (hasChildSubtasks) {
+                      setExpandedChildren((current) => ({
+                        ...current,
+                        [subtaskId]: true
+                      }));
+                    }
+                    setExpandedId(expandedId === subtaskId ? null : subtaskId);
+                  }}
+                  className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded transition-colors pointer-events-auto"
+                  title="Ajouter une sous-sous-tâche"
+                >
+                  <Plus className="w-4 h-4" />
+                </motion.button>
+
+                <div 
+                  className={`flex items-center gap-1.5 transition-opacity ${
+                    hoveredId === subtask.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                  }`}
+                >
                 <div className="flex items-center gap-1">
                   <motion.button
                     whileHover={{ scale: 1.1 }}
@@ -389,6 +479,7 @@ export default function SubtaskList({
                 >
                   <Trash2 className="w-4 h-4" />
                 </motion.button>
+                </div>
               </div>
             </div>
 
@@ -523,6 +614,82 @@ export default function SubtaskList({
               </motion.div>
             )}
           </AnimatePresence>
+
+          <AnimatePresence>
+            {expandedId === subtaskId && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mx-3 mb-3 ml-9 p-3 bg-green-50 border rounded-lg border-green-200"
+              >
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={newSubtaskTitle}
+                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleAddSubtaskSubmit(subtaskId);
+                      } else if (e.key === 'Escape') {
+                        setExpandedId(null);
+                        setShowAddForm(false);
+                        setNewSubtaskTitle('');
+                      }
+                    }}
+                    placeholder="Nom de la sous-sous-tâche..."
+                    disabled={isAddingSubtask}
+                    className="flex-1 px-3 py-2 bg-white border border-green-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+                  />
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    type="button"
+                    onClick={() => handleAddSubtaskSubmit(subtaskId)}
+                    disabled={!newSubtaskTitle.trim() || isAddingSubtask}
+                    className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+                  >
+                    {isAddingSubtask ? 'En cours...' : 'Ajouter'}
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    type="button"
+                    onClick={() => {
+                      setExpandedId(null);
+                      setShowAddForm(false);
+                      setNewSubtaskTitle('');
+                    }}
+                    disabled={isAddingSubtask}
+                    className="px-3 py-2 text-zinc-600 hover:bg-zinc-200 rounded transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </motion.button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {hasChildSubtasks && expandedChildren[subtaskId] && (
+            <SubtaskList
+              subtasks={subtasks}
+              taskId={taskId}
+              taskTitle={taskTitle}
+              onToggleSubtask={onToggleSubtask}
+              onDeleteSubtask={onDeleteSubtask}
+              onEditTask={onEditTask}
+              onAddComment={onAddComment}
+              onAddSubtask={onAddSubtask}
+              onAddAlert={onAddAlert}
+              onValidateSubtask={onValidateSubtask}
+              currentUserName={currentUserName}
+              parentSubtaskId={subtaskId}
+              level={level + 1}
+              numberPrefix={hierarchyNumber}
+            />
+          )}
         </motion.div>
       );
       })}

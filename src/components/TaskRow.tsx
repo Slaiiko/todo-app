@@ -22,7 +22,7 @@ interface TaskRowProps {
   commentsMap: Record<string, any[]>;
   handleToggleSubtask: (subtaskId: number, isComplete: boolean) => Promise<void>;
   handleDeleteSubtask: (subtaskId: number) => Promise<void>;
-  onAddSubtask?: (taskId: number, title: string) => Promise<void>;
+  onAddSubtask?: (taskId: number, title: string, parentSubtaskId?: number) => Promise<void>;
   onAddAlert?: (taskId: number, taskTitle: string, subtaskId?: number, subtaskTitle?: string) => void;
   onValidateTask?: (taskId: number, taskTitle: string, subtaskId?: number, subtaskTitle?: string) => void;
   currentUserName?: string;

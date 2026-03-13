@@ -32,6 +32,7 @@ export interface Affaire {
 export interface Subtask {
   id: number;
   task_id: number;
+  parent_subtask_id?: number | null;
   title: string;
   is_complete: boolean;
   assignee_id?: number | null;

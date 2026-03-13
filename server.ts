@@ -5,10 +5,14 @@ import { GoogleGenAI } from "@google/genai";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { fileURLToPath } from "url";
 
 const PORT = Number(process.env.PORT || 3000);
-const DB_PATH = "todo_app.db";
-const BACKUP_DIR = path.join(process.cwd(), "backups");
+const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
+const DB_PATH = path.join(PROJECT_ROOT, "todo_app.db");
+const BACKUP_DIR = path.join(PROJECT_ROOT, "backups");
+
+console.log("Using database:", DB_PATH);
 
 if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -51,6 +55,12 @@ try {
 
 try {
   db.exec(`ALTER TABLE subtasks ADD COLUMN completed_at DATETIME`);
+} catch (e) {
+  // Column might already exist
+}
+
+try {
+  db.exec(`ALTER TABLE subtasks ADD COLUMN parent_subtask_id INTEGER`);
 } catch (e) {
   // Column might already exist
 }
@@ -210,11 +220,13 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS subtasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER,
+    parent_subtask_id INTEGER,
     title TEXT NOT NULL,
     is_complete BOOLEAN DEFAULT 0,
     time_spent INTEGER DEFAULT 0,
     completed_at DATETIME,
-    FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY(parent_subtask_id) REFERENCES subtasks(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS task_assignees (
@@ -279,6 +291,95 @@ db.exec(`
     FOREIGN KEY(appointment_id) REFERENCES appointments(id) ON DELETE CASCADE
   );
 `);
+
+const restoreSubtasksWithParents = (subtasks: any[], taskMap: Map<number, number>, mode: 'insert' | 'merge' = 'insert') => {
+  const subtaskMap = new Map<number, number>();
+  const pending = [...(subtasks || [])];
+
+  while (pending.length > 0) {
+    let progressed = false;
+
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const subtask = pending[i];
+      if (!taskMap.has(subtask.task_id)) {
+        pending.splice(i, 1);
+        progressed = true;
+        continue;
+      }
+
+      const mappedTaskId = taskMap.get(subtask.task_id)!;
+      const oldParentId = subtask.parent_subtask_id ?? null;
+      if (oldParentId && !subtaskMap.has(oldParentId)) {
+        continue;
+      }
+
+      const mappedParentId = oldParentId ? subtaskMap.get(oldParentId) ?? null : null;
+      let finalId: number;
+
+      if (mode === 'merge') {
+        const existing = db.prepare(
+          "SELECT id FROM subtasks WHERE task_id = ? AND title = ? AND COALESCE(parent_subtask_id, 0) = COALESCE(?, 0)"
+        ).get(mappedTaskId, subtask.title, mappedParentId) as any;
+
+        if (existing) {
+          finalId = existing.id;
+        } else {
+          const info = db.prepare(
+            "INSERT INTO subtasks (task_id, parent_subtask_id, title, is_complete, time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?)"
+          ).run(
+            mappedTaskId,
+            mappedParentId,
+            subtask.title,
+            subtask.is_complete ? 1 : 0,
+            subtask.time_spent || 0,
+            subtask.completed_at || null
+          );
+          finalId = Number(info.lastInsertRowid);
+        }
+      } else {
+        const info = db.prepare(
+          "INSERT INTO subtasks (task_id, parent_subtask_id, title, is_complete, time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?)"
+        ).run(
+          mappedTaskId,
+          mappedParentId,
+          subtask.title,
+          subtask.is_complete ? 1 : 0,
+          subtask.time_spent || 0,
+          subtask.completed_at || null
+        );
+        finalId = Number(info.lastInsertRowid);
+      }
+
+      if (subtask.id != null) {
+        subtaskMap.set(subtask.id, finalId);
+      }
+      pending.splice(i, 1);
+      progressed = true;
+    }
+
+    if (!progressed) {
+      for (const subtask of pending.splice(0)) {
+        if (!taskMap.has(subtask.task_id)) continue;
+
+        const mappedTaskId = taskMap.get(subtask.task_id)!;
+        const info = db.prepare(
+          "INSERT INTO subtasks (task_id, parent_subtask_id, title, is_complete, time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?)"
+        ).run(
+          mappedTaskId,
+          null,
+          subtask.title,
+          subtask.is_complete ? 1 : 0,
+          subtask.time_spent || 0,
+          subtask.completed_at || null
+        );
+
+        if (subtask.id != null) {
+          subtaskMap.set(subtask.id, Number(info.lastInsertRowid));
+        }
+      }
+    }
+  }
+};
 
 // Seed default profile if none exists
 const profileCount = db.prepare("SELECT COUNT(*) as count FROM profiles").get() as { count: number };
@@ -647,13 +748,23 @@ async function startServer() {
   // Subtasks
   app.post("/api/subtasks", (req, res) => {
     const { task_id, title } = req.body;
-    const stmt = db.prepare("INSERT INTO subtasks (task_id, title) VALUES (?, ?)");
-    const info = stmt.run(task_id, title);
-    res.json({ id: info.lastInsertRowid, task_id, title, is_complete: 0 });
+    const rawParentSubtaskId = req.body.parent_subtask_id ?? req.body.parentSubtaskId ?? null;
+    const normalizedParentSubtaskId = rawParentSubtaskId == null ? null : Number(rawParentSubtaskId);
+    const stmt = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, title) VALUES (?, ?, ?)");
+    const info = stmt.run(task_id, normalizedParentSubtaskId, title);
+    res.json({
+      id: info.lastInsertRowid,
+      task_id,
+      parent_subtask_id: normalizedParentSubtaskId,
+      parentSubtaskId: normalizedParentSubtaskId,
+      title,
+      is_complete: 0
+    });
   });
 
   app.put("/api/subtasks/:id", (req, res) => {
     const { is_complete, title, time_spent, completed_at } = req.body;
+    const resolvedParentSubtaskId = req.body.parent_subtask_id ?? req.body.parentSubtaskId;
     let query = "UPDATE subtasks SET ";
     const updates = [];
     const params = [];
@@ -674,6 +785,10 @@ async function startServer() {
       updates.push("completed_at = ?");
       params.push(completed_at);
     }
+    if (resolvedParentSubtaskId !== undefined) {
+      updates.push("parent_subtask_id = ?");
+      params.push(resolvedParentSubtaskId == null ? null : Number(resolvedParentSubtaskId));
+    }
 
     if (updates.length > 0) {
       query += updates.join(", ") + " WHERE id = ?";
@@ -684,7 +799,16 @@ async function startServer() {
   });
 
   app.delete("/api/subtasks/:id", (req, res) => {
-    db.prepare("DELETE FROM subtasks WHERE id = ?").run(req.params.id);
+    db.prepare(`
+      WITH RECURSIVE descendants(id) AS (
+        SELECT ?
+        UNION ALL
+        SELECT s.id
+        FROM subtasks s
+        JOIN descendants d ON s.parent_subtask_id = d.id
+      )
+      DELETE FROM subtasks WHERE id IN (SELECT id FROM descendants)
+    `).run(req.params.id);
     res.json({ success: true });
   });
 
@@ -925,13 +1049,7 @@ async function startServer() {
           }
 
           // Insert subtasks
-          for (const s of backupData.subtasks) {
-            if (taskMap.has(s.task_id)) {
-              db.prepare("INSERT INTO subtasks (task_id, title, is_complete) VALUES (?, ?, ?)").run(
-                taskMap.get(s.task_id), s.title, s.is_complete ? 1 : 0
-              );
-            }
-          }
+          restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
 
           // Insert task assignees
           if (backupData.task_assignees && Array.isArray(backupData.task_assignees)) {
@@ -1028,16 +1146,7 @@ async function startServer() {
           }
 
           // Merge subtasks
-          for (const s of backupData.subtasks) {
-            if (taskMap.has(s.task_id)) {
-              const existing = db.prepare("SELECT id FROM subtasks WHERE task_id = ? AND title = ?").get(taskMap.get(s.task_id), s.title) as any;
-              if (!existing) {
-                db.prepare("INSERT INTO subtasks (task_id, title, is_complete) VALUES (?, ?, ?)").run(
-                  taskMap.get(s.task_id), s.title, s.is_complete ? 1 : 0
-                );
-              }
-            }
-          }
+          restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'merge');
 
           // Merge task assignees
           if (backupData.task_assignees && Array.isArray(backupData.task_assignees)) {
@@ -1104,13 +1213,7 @@ async function startServer() {
           }
 
           // Insert subtasks
-          for (const s of backupData.subtasks) {
-            if (taskMap.has(s.task_id)) {
-              db.prepare("INSERT INTO subtasks (task_id, title, is_complete) VALUES (?, ?, ?)").run(
-                taskMap.get(s.task_id), s.title, s.is_complete ? 1 : 0
-              );
-            }
-          }
+          restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
 
           // Insert task assignees
           if (backupData.task_assignees && Array.isArray(backupData.task_assignees)) {

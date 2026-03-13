@@ -173,20 +173,46 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
     }
   };
 
-  const handleAddSubtask = async (taskId: number, title: string) => {
+  const handleAddSubtask = async (taskId: number, title: string, parentSubtaskId?: number) => {
     if (!title || !title.trim()) {
       console.log('No title provided');
       return;
     }
 
     try {
+      const normalizedParentSubtaskId = parentSubtaskId == null ? null : Number(parentSubtaskId);
       console.log('Adding subtask to task', taskId, 'with title:', title);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
       const response = await fetch(getAPIUrl('/subtasks'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_id: taskId, title: title.trim() })
+        signal: controller.signal,
+        body: JSON.stringify({
+          task_id: taskId,
+          title: title.trim(),
+          parent_subtask_id: normalizedParentSubtaskId,
+          parentSubtaskId: normalizedParentSubtaskId
+        })
       });
+      clearTimeout(timeoutId);
       if (response.ok) {
+        let createdSubtask: any = null;
+        try {
+          createdSubtask = await response.json();
+        } catch {
+          createdSubtask = null;
+        }
+        if (normalizedParentSubtaskId != null && createdSubtask?.id != null) {
+          fetch(getAPIUrl(`/subtasks/${createdSubtask.id}`), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              parent_subtask_id: normalizedParentSubtaskId,
+              parentSubtaskId: normalizedParentSubtaskId
+            })
+          }).catch((error) => console.warn('Background parent re-attach failed:', error));
+        }
         console.log('Subtask added successfully');
         // Wait a small moment before dispatching to ensure database is updated
         await new Promise(resolve => setTimeout(resolve, 100));

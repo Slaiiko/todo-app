@@ -3,14 +3,14 @@ import { Appointment, Task } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format, subDays, isSameDay, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Target, Flame, CheckCircle2, Clock, PauseCircle, CalendarDays, ListTodo } from 'lucide-react';
+import { Target, Flame, CheckCircle2, Clock, CalendarDays, ListTodo } from 'lucide-react';
 
 interface Props {
   stats: { completedToday: number; pomodorosToday: number };
   tasks: Task[];
   appointments: Appointment[];
   onTaskValidate: (task: Task) => void;
-  onTaskPause: (task: Task) => void;
+  onSubtaskValidate: (task: Task, subtaskId: number, subtaskTitle: string) => void;
   onOpenTaskDetail: (task: Task) => void;
   onOpenAppointmentDetail: (appointment: Appointment) => void;
 }
@@ -35,7 +35,7 @@ export default function StatsView({
   tasks,
   appointments,
   onTaskValidate,
-  onTaskPause,
+  onSubtaskValidate,
   onOpenTaskDetail,
   onOpenAppointmentDetail
 }: Props) {
@@ -117,6 +117,30 @@ export default function StatsView({
                         </div>
                         <p className="font-semibold text-zinc-900 truncate">{task.title}</p>
                         <p className="text-xs text-zinc-500 mt-1">Priorité: {task.priority}</p>
+                        {task.subtasks && task.subtasks.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            <p className="text-xs font-medium text-zinc-600">Sous-tâches ({task.subtasks.filter(s => s.is_complete).length}/{task.subtasks.length})</p>
+                            {task.subtasks.slice(0, 3).map((subtask) => (
+                              <div key={subtask.id} className="text-xs text-zinc-600 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${subtask.is_complete ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
+                                  <span className={`truncate ${subtask.is_complete ? 'line-through text-zinc-400' : ''}`}>{subtask.title}</span>
+                                </div>
+                                {!subtask.is_complete && (
+                                  <button
+                                    onClick={() => onSubtaskValidate(task, subtask.id, subtask.title)}
+                                    className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors shrink-0"
+                                  >
+                                    Valider
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {task.subtasks.length > 3 && (
+                              <p className="text-xs text-zinc-400">+ {task.subtasks.length - 3} autre(s)</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button
@@ -124,12 +148,6 @@ export default function StatsView({
                           className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
                         >
                           Valider
-                        </button>
-                        <button
-                          onClick={() => onTaskPause(task)}
-                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
-                        >
-                          Pause
                         </button>
                         <button
                           onClick={() => setSelectedItem(item)}
@@ -248,13 +266,31 @@ export default function StatsView({
                 <p className="text-sm text-zinc-600 mb-1">Échéance: {selectedItem.task.due_date ? format(parseISO(selectedItem.task.due_date), 'dd/MM/yyyy HH:mm') : 'Non définie'}</p>
                 <p className="text-sm text-zinc-600 mb-4">Description: {selectedItem.task.description_md || 'Aucune description'}</p>
 
+                {selectedItem.task.subtasks && selectedItem.task.subtasks.length > 0 && (
+                  <div className="mb-4 p-3 rounded-lg border border-zinc-200 bg-zinc-50">
+                    <p className="text-sm font-semibold text-zinc-800 mb-2">Sous-tâches</p>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {selectedItem.task.subtasks.map((subtask) => (
+                        <div key={subtask.id} className="text-sm text-zinc-700 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`inline-block w-2 h-2 rounded-full ${subtask.is_complete ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
+                            <span className={`truncate ${subtask.is_complete ? 'line-through text-zinc-400' : ''}`}>{subtask.title}</span>
+                          </div>
+                          {!subtask.is_complete && (
+                            <button
+                              onClick={() => onSubtaskValidate(selectedItem.task, subtask.id, subtask.title)}
+                              className="px-2.5 py-1 text-xs font-medium rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors shrink-0"
+                            >
+                              Valider
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-end gap-2">
-                  <button
-                    onClick={() => onTaskPause(selectedItem.task)}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors inline-flex items-center gap-1"
-                  >
-                    <PauseCircle className="w-4 h-4" /> Pause
-                  </button>
                   <button
                     onClick={() => onTaskValidate(selectedItem.task)}
                     className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"

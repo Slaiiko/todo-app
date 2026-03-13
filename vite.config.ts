@@ -5,6 +5,7 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const serverPort = Number(env.PORT || process.env.PORT || 3000);
   return {
     plugins: [react(), tailwindcss()],
     define: {
@@ -31,7 +32,7 @@ export default defineConfig(({mode}) => {
       },
       proxy: {
         '/api': {
-          target: 'http://localhost:3000',
+          target: `http://localhost:${serverPort}`,
           changeOrigin: true,
         },
       },    },

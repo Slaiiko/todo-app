@@ -32,7 +32,8 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
   const [kanban_column, setKanbanColumn] = useState(task?.kanban_column || 'To Do');
   const [subtasks, setSubtasks] = useState<Subtask[]>(task?.subtasks || []);
   const [newSubtask, setNewSubtask] = useState('');
-  const [newSubtaskAssignee, setNewSubtaskAssignee] = useState<number | ''>('');
+  const [childSubtaskTitles, setChildSubtaskTitles] = useState<Record<number, string>>({});
+  const [openChildSubtaskForms, setOpenChildSubtaskForms] = useState<Record<number, boolean>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [assignees, setAssignees] = useState<TaskAssignee[]>([]);
   const [newAssigneeName, setNewAssigneeName] = useState('');
@@ -67,6 +68,9 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
       setAffaireId(task.affaire_id || '');
       setKanbanColumn(task.kanban_column || 'To Do');
       setSubtasks(task.subtasks || []);
+      setNewSubtask('');
+      setChildSubtaskTitles({});
+      setOpenChildSubtaskForms({});
       setRecurrenceType((task.recurrence_type || '') as any);
       setRecurrenceEndDate(task.recurrence_end_date ? task.recurrence_end_date.split('T')[0] : '');
       setIsMultiDay(task.start_date && task.due_date && task.start_date.split('T')[0] !== task.due_date.split('T')[0]);
@@ -186,37 +190,99 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
     }
   };
 
-  const addSubtask = async () => {
-    if (!newSubtask.trim()) return;
-    
+  const getDirectChildSubtasks = (parentSubtaskId: number | null) => {
+    return subtasks.filter((subtask) => {
+      const rawParentId = (subtask as any).parent_subtask_id ?? (subtask as any).parentSubtaskId ?? null;
+      const normalizedParentId = rawParentId == null ? null : Number(rawParentId);
+      return normalizedParentId === parentSubtaskId;
+    });
+  };
+
+  const getDescendantSubtaskIds = (subtaskId: number, sourceSubtasks: Subtask[]): number[] => {
+    const directChildren = sourceSubtasks
+      .filter((subtask) => {
+        const rawParentId = (subtask as any).parent_subtask_id ?? (subtask as any).parentSubtaskId ?? null;
+        const normalizedParentId = rawParentId == null ? null : Number(rawParentId);
+        return normalizedParentId === subtaskId;
+      })
+      .map((subtask) => Number(subtask.id));
+
+    return directChildren.flatMap((childId) => [childId, ...getDescendantSubtaskIds(childId, sourceSubtasks)]);
+  };
+
+  const toggleChildSubtaskForm = (subtaskId: number) => {
+    setOpenChildSubtaskForms((current) => ({
+      ...current,
+      [subtaskId]: !current[subtaskId]
+    }));
+  };
+
+  const addSubtask = async (parentSubtaskId: number | null = null) => {
+    const titleToCreate = parentSubtaskId === null
+      ? newSubtask.trim()
+      : (childSubtaskTitles[parentSubtaskId] || '').trim();
+
+    if (!titleToCreate) return;
+
     if (task?.id) {
       try {
         const res = await fetch(getAPIUrl('/subtasks'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            task_id: task.id, 
-            title: newSubtask,
-            assignee_id: newSubtaskAssignee ? Number(newSubtaskAssignee) : null
+          body: JSON.stringify({
+            task_id: task.id,
+            title: titleToCreate,
+            parent_subtask_id: parentSubtaskId,
+            parentSubtaskId: parentSubtaskId
           })
         });
         const sub = await res.json();
-        setSubtasks([...subtasks, sub]);
+        if (parentSubtaskId != null && sub?.id != null) {
+          fetch(getAPIUrl(`/subtasks/${sub.id}`), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              parent_subtask_id: Number(parentSubtaskId),
+              parentSubtaskId: Number(parentSubtaskId)
+            })
+          }).catch((error) => console.warn('Background parent re-attach failed:', error));
+        }
+        const normalizedParentSubtaskId = parentSubtaskId == null ? null : Number(parentSubtaskId);
+        setSubtasks((current) => [
+          ...current,
+          {
+            ...sub,
+            parent_subtask_id: normalizedParentSubtaskId,
+            parentSubtaskId: normalizedParentSubtaskId
+          }
+        ]);
       } catch (e) {
         console.log('Could not add subtask to backend');
       }
     } else {
       const optimisticSubtask: Subtask = {
-        id: -Date.now(),
+        id: -Date.now() - Math.floor(Math.random() * 1000),
         task_id: 0,
-        title: newSubtask,
+        parent_subtask_id: parentSubtaskId,
+        title: titleToCreate,
         is_complete: false
       };
-      setSubtasks([...subtasks, optimisticSubtask]);
+      setSubtasks((current) => [...current, optimisticSubtask]);
     }
-    
-    setNewSubtask('');
-    setNewSubtaskAssignee('');
+
+    if (parentSubtaskId === null) {
+      setNewSubtask('');
+      return;
+    }
+
+    setChildSubtaskTitles((current) => ({
+      ...current,
+      [parentSubtaskId]: ''
+    }));
+    setOpenChildSubtaskForms((current) => ({
+      ...current,
+      [parentSubtaskId]: false
+    }));
   };
 
   const toggleSubtask = async (id: number, is_complete: boolean) => {
@@ -229,7 +295,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
     } catch (e) {
       console.log('Could not toggle subtask');
     }
-    setSubtasks(subtasks.map(s => s.id === id ? { ...s, is_complete } : s));
+    setSubtasks((current) => current.map(s => s.id === id ? { ...s, is_complete } : s));
   };
 
   const deleteSubtask = async (id: number) => {
@@ -240,7 +306,89 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
     } catch (e) {
       console.log('Could not delete subtask');
     }
-    setSubtasks(subtasks.filter(s => s.id !== id));
+
+    setSubtasks((current) => {
+      const descendants = getDescendantSubtaskIds(id, current);
+      const idsToRemove = new Set([id, ...descendants]);
+      return current.filter((subtask) => !idsToRemove.has(subtask.id));
+    });
+  };
+
+  const renderSubtaskTree = (parentSubtaskId: number | null = null, level = 0): React.ReactNode => {
+    const childSubtasks = getDirectChildSubtasks(parentSubtaskId);
+
+    if (childSubtasks.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className={level === 0 ? 'space-y-2' : 'ml-6 mt-2 space-y-2 border-l border-zinc-200 pl-3'}>
+        {childSubtasks.map((subtask) => (
+          <div key={subtask.id} className="space-y-2">
+            <div className="flex items-center gap-2 group bg-zinc-50 p-2 rounded-lg border border-zinc-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-all">
+              <input
+                type="checkbox"
+                checked={subtask.is_complete}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  toggleSubtask(subtask.id, e.target.checked);
+                }}
+                className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer transition-transform hover:scale-110"
+              />
+              <span
+                onClick={() => toggleSubtask(subtask.id, !subtask.is_complete)}
+                className={`flex-1 text-sm cursor-pointer transition-colors duration-300 ${subtask.is_complete ? 'line-through text-zinc-400' : 'text-zinc-700'}`}
+              >
+                {subtask.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => toggleChildSubtaskForm(subtask.id)}
+                className="p-1.5 text-zinc-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-indigo-50"
+                title="Ajouter une sous-tâche à cette sous-tâche"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteSubtask(subtask.id);
+                }}
+                className="p-1.5 text-zinc-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+
+            {openChildSubtaskForms[subtask.id] && (
+              <div className="ml-6 flex items-center gap-2 bg-white p-2 rounded-lg border border-zinc-200">
+                <input
+                  type="text"
+                  value={childSubtaskTitles[subtask.id] || ''}
+                  onChange={(e) => setChildSubtaskTitles((current) => ({
+                    ...current,
+                    [subtask.id]: e.target.value
+                  }))}
+                  onKeyDown={(e) => e.key === 'Enter' && addSubtask(subtask.id)}
+                  placeholder="Ajouter une sous-sous-tâche..."
+                  className="flex-1 bg-white border border-zinc-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => addSubtask(subtask.id)}
+                  disabled={!(childSubtaskTitles[subtask.id] || '').trim()}
+                  className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:bg-zinc-300 transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+
+            {renderSubtaskTree(subtask.id, level + 1)}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   return (
@@ -493,47 +641,17 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
               </div>
               
               <div className="space-y-1">
-                {subtasks.map(sub => (
-                  <div 
-                    key={sub.id} 
-                    className="flex items-center gap-2 group bg-zinc-50 p-2 rounded-lg border border-zinc-200 hover:border-indigo-300 hover:bg-indigo-50/50 cursor-pointer transition-all"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={sub.is_complete}
-                      onChange={e => {
-                        e.stopPropagation();
-                        toggleSubtask(sub.id, e.target.checked);
-                      }}
-                      className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer transition-transform hover:scale-110"
-                    />
-                    <span 
-                      onClick={() => toggleSubtask(sub.id, !sub.is_complete)}
-                      className={`flex-1 text-sm transition-colors duration-300 ${sub.is_complete ? 'line-through text-zinc-400' : 'text-zinc-700'}`}
-                    >
-                      {sub.title}
-                    </span>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSubtask(sub.id);
-                      }} 
-                      className="p-1.5 text-zinc-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+                {renderSubtaskTree()}
                 <div className="flex items-center gap-2 mt-2 bg-white p-2 rounded-lg border border-zinc-200">
                   <input
                     type="text"
                     value={newSubtask}
                     onChange={e => setNewSubtask(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addSubtask()}
+                    onKeyDown={e => e.key === 'Enter' && addSubtask(null)}
                     placeholder="Ajouter une sous-tâche..."
                     className="flex-1 bg-white border border-zinc-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
-                  <button onClick={addSubtask} disabled={!newSubtask.trim()} className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:bg-zinc-300 transition-colors">
+                  <button onClick={() => addSubtask(null)} disabled={!newSubtask.trim()} className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:bg-zinc-300 transition-colors">
                     <Plus className="w-5 h-5" />
                   </button>
                 </div>

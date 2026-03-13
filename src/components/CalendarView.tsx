@@ -22,6 +22,11 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
   const [draggedTaskId, setDraggedTaskId] = useState<number | null>(null);
   const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
   const [expandedSubtaskTaskIds, setExpandedSubtaskTaskIds] = useState<Set<number>>(new Set());
+  const [calendarZoom, setCalendarZoom] = useState(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('calendarViewZoom') : null;
+    const parsed = stored ? parseInt(stored, 10) : 100;
+    return Number.isNaN(parsed) ? 100 : Math.max(45, Math.min(115, parsed));
+  });
   
   // Use refs to avoid unnecessary re-renders from useEffect dependencies
   const dragStartInfoRef = useRef<{ taskId: number; startY: number; startDate: Date } | null>(null);
@@ -35,6 +40,23 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
     const stored = typeof window !== 'undefined' ? localStorage.getItem('weekViewHourHeight') : null;
     return stored ? parseInt(stored, 10) : 80;
   });
+  const calendarScale = calendarZoom / 100;
+  const effectiveHourHeight = Math.max(24, Math.round(hourLineHeight * calendarScale));
+
+  const handleCalendarZoomChange = (delta: number) => {
+    const newZoom = Math.max(45, Math.min(115, calendarZoom + delta));
+    setCalendarZoom(newZoom);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('calendarViewZoom', String(newZoom));
+    }
+  };
+
+  const resetCalendarZoom = () => {
+    setCalendarZoom(100);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('calendarViewZoom', '100');
+    }
+  };
 
   // Handle hour height changes and persist to localStorage
   const handleZoomChange = (delta: number) => {
@@ -67,7 +89,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
   };
 
   const pixelsToMinutes = (pixels: number): number => {
-    return Math.round((pixels / hourLineHeight) * 60);
+    return Math.round((pixels / effectiveHourHeight) * 60);
   };
 
   // Parse recurrence string (format: "daily|2026-03-20" or "weekly|" or null)
@@ -206,17 +228,35 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
     const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
     const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
     const days = eachDayOfInterval({ start: startDate, end: endDate });
+    const weekRowCount = Math.ceil(days.length / 7);
+    const monthCellMinHeight = Math.max(58, Math.round(120 * calendarScale));
+    const monthTaskListMaxHeight = Math.max(36, Math.round(80 * calendarScale));
+    const monthDayBadgeSize = Math.max(24, Math.round(28 * calendarScale));
+    const monthDayBadgeFontSize = Math.max(11, Math.round(14 * calendarScale));
+    const monthTaskFontSize = Math.max(10, Math.round(12 * calendarScale));
 
     return (
-      <>
+      <div className="h-full flex flex-col overflow-hidden">
         <div className="grid grid-cols-7 border-b border-zinc-200 bg-zinc-50">
           {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(day => (
-            <div key={day} className="py-3 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+            <div
+              key={day}
+              className="text-center font-semibold text-zinc-500 uppercase tracking-wider"
+              style={{
+                paddingTop: `${Math.max(8, Math.round(12 * calendarScale))}px`,
+                paddingBottom: `${Math.max(8, Math.round(12 * calendarScale))}px`,
+                fontSize: `${Math.max(10, Math.round(12 * calendarScale))}px`
+              }}
+            >
               {day}
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 grid-rows-5 overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
+          <div
+            className="grid grid-cols-7"
+            style={{ gridTemplateRows: `repeat(${weekRowCount}, minmax(${monthCellMinHeight}px, 1fr))` }}
+          >
           {days.map((day) => {
             const dayTasks = getTasksForDay(day);
             const isCurrentMonth = isSameMonth(day, monthStart);
@@ -227,9 +267,20 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                 key={day.toString()} 
                 data-day-cell={format(day, 'yyyy-MM-dd')}
                 className={`min-h-[120px] border-b border-r border-zinc-100 p-2 transition-colors relative group ${!isCurrentMonth ? 'bg-zinc-50/50 text-zinc-400' : 'bg-white hover:bg-zinc-50'}`}
+                style={{
+                  minHeight: `${monthCellMinHeight}px`,
+                  padding: `${Math.max(6, Math.round(8 * calendarScale))}px`
+                }}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`w-7 h-7 flex items-center justify-center rounded-full text-sm font-medium ${isToday ? 'bg-indigo-600 text-white shadow-md' : 'text-zinc-700'}`}>
+                  <span
+                    className={`flex items-center justify-center rounded-full font-medium ${isToday ? 'bg-indigo-600 text-white shadow-md' : 'text-zinc-700'}`}
+                    style={{
+                      width: `${monthDayBadgeSize}px`,
+                      height: `${monthDayBadgeSize}px`,
+                      fontSize: `${monthDayBadgeFontSize}px`
+                    }}
+                  >
                     {format(day, 'd')}
                   </span>
                   <button 
@@ -240,7 +291,10 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                   </button>
                 </div>
                 
-                <div className="space-y-1 overflow-y-auto max-h-[80px] pr-1 scrollbar-thin scrollbar-thumb-zinc-200">
+                <div
+                  className="space-y-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-200"
+                  style={{ maxHeight: `${monthTaskListMaxHeight}px` }}
+                >
                   {dayTasks.map(task => {
                     const spanInfo = getTaskSpanInfo(task, day);
                     const duration = getTaskDuration(task);
@@ -266,9 +320,13 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                         style={spanInfo && duration ? {
                           gridColumn: spanInfo.isFirst ? 'span 1' : 'auto',
                           position: 'relative',
-                          opacity: draggedTaskId === task.id ? 0.5 : 1
+                          opacity: draggedTaskId === task.id ? 0.5 : 1,
+                          fontSize: `${monthTaskFontSize}px`,
+                          padding: `${Math.max(3, Math.round(4 * calendarScale))}px ${Math.max(6, Math.round(8 * calendarScale))}px`
                         } : {
-                          opacity: draggedTaskId === task.id ? 0.5 : 1
+                          opacity: draggedTaskId === task.id ? 0.5 : 1,
+                          fontSize: `${monthTaskFontSize}px`,
+                          padding: `${Math.max(3, Math.round(4 * calendarScale))}px ${Math.max(6, Math.round(8 * calendarScale))}px`
                         }}
                         onMouseEnter={() => setHoveredTaskId(task.id)}
                         onMouseLeave={() => setHoveredTaskId(null)}
@@ -330,8 +388,9 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
               </div>
             );
           })}
+          </div>
         </div>
-      </>
+      </div>
     );
   };
 
@@ -541,9 +600,12 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
       start: yearStart, 
       end: endOfYear(currentMonth) 
     });
+    const yearColumns = calendarZoom <= 80 ? 4 : 3;
+    const yearCardPadding = Math.max(10, Math.round(16 * calendarScale));
+    const yearDayCellHeight = Math.max(20, Math.round(24 * calendarScale));
 
     return (
-      <div className="grid grid-cols-3 gap-4 p-4 overflow-y-auto">
+      <div className="grid gap-4 p-4 overflow-y-auto" style={{ gridTemplateColumns: `repeat(${yearColumns}, minmax(0, 1fr))` }}>
         {months.map((month) => {
           const monthStart = startOfMonth(month);
           const monthEnd = endOfMonth(monthStart);
@@ -572,14 +634,15 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                 setCurrentMonth(month);
                 setViewMode('month');
               }}
-              className="bg-white rounded-lg border border-zinc-200 p-4 cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all"
+              className="bg-white rounded-lg border border-zinc-200 cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all"
+              style={{ padding: `${yearCardPadding}px` }}
             >
-              <h3 className="text-sm font-semibold text-zinc-800 mb-3">
+              <h3 className="font-semibold text-zinc-800 mb-3" style={{ fontSize: `${Math.max(12, Math.round(14 * calendarScale))}px` }}>
                 {format(month, 'MMMM', { locale: fr })}
               </h3>
               <div className="grid grid-cols-7 gap-1 mb-3">
                 {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(day => (
-                  <div key={day} className="text-center text-xs font-medium text-zinc-500 h-6 flex items-center justify-center">
+                  <div key={day} className="text-center font-medium text-zinc-500 flex items-center justify-center" style={{ height: `${yearDayCellHeight}px`, fontSize: `${Math.max(10, Math.round(12 * calendarScale))}px` }}>
                     {day}
                   </div>
                 ))}
@@ -593,12 +656,13 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                   return (
                     <div 
                       key={day.toString()}
-                      className={`text-xs h-6 flex items-center justify-center rounded font-medium ${
+                      className={`flex items-center justify-center rounded font-medium ${
                         !isCurrentMonth ? 'text-zinc-300' :
                         isToday ? 'bg-indigo-600 text-white' :
                         dayTasks.length > 0 ? 'bg-indigo-100 text-indigo-700' :
                         'text-zinc-700 hover:bg-zinc-100'
                       }`}
+                      style={{ height: `${yearDayCellHeight}px`, fontSize: `${Math.max(10, Math.round(12 * calendarScale))}px` }}
                     >
                       {format(day, 'd')}
                     </div>
@@ -622,7 +686,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
     const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
     const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-    const HOUR_HEIGHT = hourLineHeight; // Use dynamic height from state
+    const HOUR_HEIGHT = effectiveHourHeight;
 
     const timeToMinutes = (timeStr: string | null): number | null => {
       if (!timeStr) return null;
@@ -731,7 +795,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
           className="grid border-b border-zinc-200 bg-zinc-50 flex-shrink-0"
           style={{ gridTemplateColumns: '80px 1fr 1fr 1fr 1fr 1fr 1fr 1fr' }}
         >
-          <div className="border-r border-zinc-200 p-2 flex items-center justify-center text-xs font-semibold text-zinc-500">
+          <div className="border-r border-zinc-200 flex items-center justify-center font-semibold text-zinc-500" style={{ padding: `${Math.max(6, Math.round(8 * calendarScale))}px`, fontSize: `${Math.max(10, Math.round(12 * calendarScale))}px` }}>
             Heure
           </div>
           {days.map((day) => {
@@ -739,12 +803,24 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
             return (
               <div 
                 key={day.toString()} 
-                className={`flex-1 py-3 px-2 text-center border-r border-zinc-200 last:border-r-0 ${isToday ? 'bg-indigo-50' : ''}`}
+                className={`flex-1 text-center border-r border-zinc-200 last:border-r-0 ${isToday ? 'bg-indigo-50' : ''}`}
+                style={{ padding: `${Math.max(8, Math.round(12 * calendarScale))}px ${Math.max(6, Math.round(8 * calendarScale))}px` }}
               >
-                <div className="text-xs font-semibold text-zinc-500 uppercase">
+                <div className="font-semibold text-zinc-500 uppercase" style={{ fontSize: `${Math.max(10, Math.round(12 * calendarScale))}px` }}>
                   {format(day, 'EEE', { locale: fr })}
                 </div>
-                <div className={`text-lg font-bold mt-1 ${isToday ? 'text-indigo-600 bg-indigo-600 text-white rounded-full w-8 h-8 flex items-center justify-center mx-auto' : 'text-zinc-800'}`}>
+                <div
+                  className={`font-bold mt-1 ${isToday ? 'text-indigo-600 bg-indigo-600 text-white rounded-full flex items-center justify-center mx-auto' : 'text-zinc-800'}`}
+                  style={isToday
+                    ? {
+                        width: `${Math.max(28, Math.round(32 * calendarScale))}px`,
+                        height: `${Math.max(28, Math.round(32 * calendarScale))}px`,
+                        fontSize: `${Math.max(14, Math.round(18 * calendarScale))}px`
+                      }
+                    : {
+                        fontSize: `${Math.max(14, Math.round(18 * calendarScale))}px`
+                      }}
+                >
                   {format(day, 'd')}
                 </div>
               </div>
@@ -1048,6 +1124,31 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
               Semaine
             </button>
           </div>
+          <div className="flex items-center gap-1 px-1.5 py-1.5 bg-zinc-100 rounded-lg border border-zinc-200">
+            <span className="text-xs font-medium text-zinc-600">Zoom:</span>
+            <button
+              onClick={() => handleCalendarZoomChange(-10)}
+              className="px-1 py-0.5 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-50 rounded transition-colors"
+              title="Dézoomer le calendrier"
+            >
+              −
+            </button>
+            <span className="text-xs font-mono text-zinc-500 w-10 text-center">{calendarZoom}%</span>
+            <button
+              onClick={() => handleCalendarZoomChange(10)}
+              className="px-1 py-0.5 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-50 rounded transition-colors"
+              title="Zoomer le calendrier"
+            >
+              +
+            </button>
+            <button
+              onClick={resetCalendarZoom}
+              className="px-1 py-0.5 text-xs font-medium text-zinc-600 hover:text-zinc-900 transition-colors"
+              title="Réinitialiser le zoom du calendrier"
+            >
+              Réinit
+            </button>
+          </div>
           {viewMode === 'week' && (
             <div className="flex items-center gap-1 px-1.5 py-1.5 bg-zinc-100 rounded-lg border border-zinc-200">
               <span className="text-xs font-medium text-zinc-600">Zoom h:</span>
@@ -1058,7 +1159,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
               >
                 −
               </button>
-              <span className="text-xs font-mono text-zinc-500 w-8 text-center">{hourLineHeight}px</span>
+              <span className="text-xs font-mono text-zinc-500 w-12 text-center">{effectiveHourHeight}px</span>
               <button
                 onClick={() => handleZoomChange(10)}
                 className="px-1 py-0.5 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-50 rounded transition-colors"

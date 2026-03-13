@@ -114,10 +114,31 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
     }
   };
 
+  const isSupportedBackupFile = (fileName: string) => {
+    const lowerName = fileName.toLowerCase();
+    return lowerName.endsWith('.json') || lowerName.endsWith('.jsonbak');
+  };
+
+  const resetFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setSelectedFile(e.target.files[0]);
+      const file = e.target.files[0];
+      if (!isSupportedBackupFile(file.name)) {
+        showMessage('error', 'Format de fichier non supporté. Utilisez .json ou .jsonbak');
+        e.target.value = '';
+        return;
+      }
+
+      setSelectedFile(file);
       setShowImportModal(true);
+
+      // Allow selecting the same file again to retrigger onChange
+      e.target.value = '';
     }
   };
 
@@ -125,7 +146,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (file.name.endsWith('.json') || file.name.endsWith('.jsonbak')) {
+      if (isSupportedBackupFile(file.name)) {
         setSelectedFile(file);
         setShowImportModal(true);
       } else {
@@ -141,7 +162,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
   const handleImport = async () => {
     if (!selectedFile) return;
     
-    if (selectedFile.name.endsWith('.jsonbak') && !importPassword) {
+    if (selectedFile.name.toLowerCase().endsWith('.jsonbak') && !importPassword) {
       showMessage('error', 'Mot de passe requis pour cette sauvegarde chiffrée.');
       return;
     }
@@ -183,6 +204,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         setShowImportModal(false);
         setSelectedFile(null);
         setImportPassword('');
+        resetFileInput();
         onRestoreComplete();
       } else {
         showMessage('error', data.error || 'Erreur lors de la restauration');
@@ -416,7 +438,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
                   <span className="font-medium truncate">{selectedFile.name}</span>
                 </div>
 
-                {selectedFile.name.endsWith('.jsonbak') && (
+                {selectedFile.name.toLowerCase().endsWith('.jsonbak') && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-zinc-700">Mot de passe de déchiffrement</label>
                     <input
@@ -478,14 +500,14 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
 
               <div className="px-6 py-4 border-t border-zinc-100 bg-zinc-50 flex justify-end gap-3">
                 <button 
-                  onClick={() => { setShowImportModal(false); setSelectedFile(null); setImportPassword(''); }}
+                  onClick={() => { setShowImportModal(false); setSelectedFile(null); setImportPassword(''); resetFileInput(); }}
                   className="px-4 py-2 text-zinc-600 font-medium hover:bg-zinc-200 rounded-xl transition-colors"
                 >
                   Annuler
                 </button>
                 <button 
                   onClick={handleImport}
-                  disabled={isImporting || (selectedFile.name.endsWith('.jsonbak') && !importPassword)}
+                  disabled={isImporting || (selectedFile.name.toLowerCase().endsWith('.jsonbak') && !importPassword)}
                   className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
                   {isImporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
