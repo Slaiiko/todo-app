@@ -1396,9 +1396,10 @@ async function startServer() {
                 'pomodoro',
                 'appointments',
                 'appointment_participants',
-                'backup_log'
+                'backup_log',
+                'chat_messages'
             ];
-            const requiredTables = ['profiles', 'tasks', 'subtasks', 'categories', 'affaires', 'documents'];
+            const requiredTables = ['profiles', 'tasks', 'subtasks'];
             const sourceTableRows = sourceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
             const sourceTableNames = new Set(sourceTableRows.map((row) => String(row.name || '')));
             for (const required of requiredTables) {
@@ -1437,6 +1438,7 @@ async function startServer() {
                 if (importMode === 'full') {
                     db.prepare("DELETE FROM appointment_participants").run();
                     db.prepare("DELETE FROM appointments").run();
+                    db.prepare("DELETE FROM chat_messages").run();
                     db.prepare("DELETE FROM documents").run();
                     db.prepare("DELETE FROM subtasks").run();
                     db.prepare("DELETE FROM task_assignees").run();
