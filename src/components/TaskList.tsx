@@ -89,7 +89,11 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
   useEffect(() => {
     const allComments: Record<string, any[]> = {};
     filteredTasks.forEach(task => {
-      const key = `task-${task.id}`;
+      const appointmentId = Number((task as any)._appointmentId || 0);
+      const isAppointmentEntry = Boolean((task as any)._isAppointment && appointmentId > 0);
+      const key = isAppointmentEntry
+        ? `appointment-${appointmentId}-comments`
+        : `task-${task.id}-comments`;
       const saved = localStorage.getItem(key);
       if (saved) {
         allComments[key] = JSON.parse(saved);

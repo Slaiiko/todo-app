@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Profile, ViewMode, Category, Affaire } from '../types';
-import { LayoutList, LayoutGrid, Calendar, BarChart2, LogOut, Settings, Archive, Trash2, Briefcase, DatabaseBackup, Plus, Check, X } from 'lucide-react';
+import { LayoutList, LayoutGrid, Calendar, BarChart2, LogOut, Settings, Archive, Trash2, Briefcase, DatabaseBackup, Plus, Check, X, MessageCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface Props {
@@ -16,9 +16,10 @@ interface Props {
   onSelectCategory?: (categoryId: number) => void;
   onAddCategory?: (name: string, color: string) => Promise<void>;
   customLabels?: Record<string, string>;
+  onOpenChat?: () => void;
 }
 
-export default function Sidebar({ profile, stats, viewMode, setViewMode, categories, affaires, onSwitchProfile, onSettings, onSelectAffaire, onSelectCategory, onAddCategory, customLabels }: Props) {
+export default function Sidebar({ profile, stats, viewMode, setViewMode, categories, affaires, onSwitchProfile, onSettings, onSelectAffaire, onSelectCategory, onAddCategory, customLabels, onOpenChat }: Props) {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#6366f1');
@@ -213,6 +214,13 @@ export default function Sidebar({ profile, stats, viewMode, setViewMode, categor
       </nav>
 
       <div className="p-4 border-t border-zinc-800 space-y-1">
+        <button 
+          onClick={onOpenChat}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors"
+        >
+          <MessageCircle className="w-5 h-5" />
+          <span className="font-medium text-sm">Discussion</span>
+        </button>
         <button 
           onClick={onSettings}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors">
