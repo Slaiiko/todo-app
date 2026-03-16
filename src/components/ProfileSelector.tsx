@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Profile } from '../types';
 import { getAPIUrl } from '../utils/api';
-import { Plus, Trash2, RotateCcw, Edit2, Upload, CheckCircle2, AlertCircle, Download, DatabaseBackup, FileJson } from 'lucide-react';
+import { Plus, Trash2, RotateCcw, Edit2, Upload, CheckCircle2, AlertCircle, Download, DatabaseBackup, FileJson, Monitor, Smartphone } from 'lucide-react';
 
 interface Props {
   profiles: Profile[];
@@ -10,9 +10,11 @@ interface Props {
   onCreateProfile: (profile: Profile) => void;
   onDeleteProfile?: (profileId: number) => Promise<void>;
   onRestoreProfile?: (profileId: number) => Promise<void>;
+  layoutMode: 'desktop' | 'mobile';
+  onLayoutModeChange: (mode: 'desktop' | 'mobile') => void;
 }
 
-export default function ProfileSelector({ profiles, onSelect, onCreateProfile, onDeleteProfile, onRestoreProfile }: Props) {
+export default function ProfileSelector({ profiles, onSelect, onCreateProfile, onDeleteProfile, onRestoreProfile, layoutMode, onLayoutModeChange }: Props) {
   const [isCreating, setIsCreating] = useState(false);
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -391,6 +393,35 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
         animate={{ opacity: 1, scale: 1 }}
         className="max-w-3xl w-full"
       >
+        <div className="mb-8 flex justify-center">
+          <div className="inline-flex items-center rounded-2xl border border-white/10 bg-zinc-800/80 p-1.5 shadow-lg">
+            <button
+              type="button"
+              onClick={() => onLayoutModeChange('desktop')}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
+                layoutMode === 'desktop'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-300 hover:bg-zinc-700/80 hover:text-white'
+              }`}
+            >
+              <Monitor className="w-4 h-4" />
+              <span>Vue Ordinateur</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onLayoutModeChange('mobile')}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
+                layoutMode === 'mobile'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-300 hover:bg-zinc-700/80 hover:text-white'
+              }`}
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>Vue Mobile</span>
+            </button>
+          </div>
+        </div>
+
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">Who's working today?</h1>
           <p className="text-zinc-400">Select your profile to continue</p>

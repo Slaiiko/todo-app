@@ -17,9 +17,10 @@ interface Props {
   onAddCategory?: (name: string, color: string) => Promise<void>;
   customLabels?: Record<string, string>;
   onOpenChat?: () => void;
+  className?: string;
 }
 
-export default function Sidebar({ profile, stats, viewMode, setViewMode, categories, affaires, onSwitchProfile, onSettings, onSelectAffaire, onSelectCategory, onAddCategory, customLabels, onOpenChat }: Props) {
+export default function Sidebar({ profile, stats, viewMode, setViewMode, categories, affaires, onSwitchProfile, onSettings, onSelectAffaire, onSelectCategory, onAddCategory, customLabels, onOpenChat, className = '' }: Props) {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#6366f1');
@@ -68,7 +69,7 @@ export default function Sidebar({ profile, stats, viewMode, setViewMode, categor
   ] as const;
 
   return (
-    <aside id="sidebar-content" className="w-64 text-zinc-300 flex flex-col shrink-0 border-r border-zinc-800 shadow-[4px_0_24px_rgba(0,0,0,0.2)] relative z-20 transition-all duration-250 ease-in-out">
+    <aside id="sidebar-content" className={`w-64 text-zinc-300 flex flex-col shrink-0 border-r border-zinc-800 shadow-[4px_0_24px_rgba(0,0,0,0.2)] relative z-20 transition-all duration-250 ease-in-out ${className}`}>
       <div className="p-6 flex items-center gap-4 border-b border-zinc-800">
         <div className="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center text-2xl shadow-inner border border-zinc-700 overflow-hidden">
           {profile.logo ? (

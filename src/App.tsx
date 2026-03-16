@@ -20,7 +20,7 @@ import TaskDetailModal from './components/TaskDetailModal';
 import AppointmentModal from './components/AppointmentModal';
 import AffairesView from './components/AffairesView';
 import SettingsView from './components/SettingsView';
-import { Plus, AlertCircle, X, CheckCircle2, Clock, Calendar, MessageCircle } from 'lucide-react';
+import { Plus, AlertCircle, X, CheckCircle2, Clock, Calendar, MessageCircle, Monitor, Smartphone, Menu } from 'lucide-react';
 import BackupManager from './components/BackupManager';
 import ChatWindow from './components/ChatWindow';
 
@@ -149,6 +149,14 @@ function adaptColorByLuminosity(selectedColor: string, referenceColor: string): 
 }
 
 export default function App() {
+  const getDefaultLayoutMode = (): 'desktop' | 'mobile' => {
+    if (typeof window === 'undefined') {
+      return 'desktop';
+    }
+
+    return window.innerWidth < 1024 ? 'mobile' : 'desktop';
+  };
+
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [profilesLoaded, setProfilesLoaded] = useState(false);
@@ -181,6 +189,8 @@ export default function App() {
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [chatToasts, setChatToasts] = useState<ChatToastItem[]>([]);
+  const [layoutMode, setLayoutMode] = useState<'desktop' | 'mobile'>(getDefaultLayoutMode);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Track if we've already checked for overdue tasks on startup
   const hasCheckedOverdueStartup = useRef(false);
@@ -245,20 +255,15 @@ export default function App() {
 
         setProfiles(safeProfiles);
 
-        if (safeProfiles.length > 0) {
-          const savedActiveProfileId = Number(localStorage.getItem('activeProfileId') || 0);
-          const savedActiveProfile = safeProfiles.find((profile: Profile) => Number(profile.id) === savedActiveProfileId && !profile.is_archived);
-          setActiveProfile(savedActiveProfile || null);
-        } else {
-          setActiveProfile(null);
-          setTasks([]);
-          setArchivedTasks([]);
-          setTrashedTasks([]);
-          setCategories([]);
-          setAffaires([]);
-          setAppointments([]);
-          localStorage.removeItem('activeProfileId');
-        }
+        // Always start on profile selection, never auto-restore
+        setActiveProfile(null);
+        setTasks([]);
+        setArchivedTasks([]);
+        setTrashedTasks([]);
+        setCategories([]);
+        setAffaires([]);
+        setAppointments([]);
+        localStorage.removeItem('activeProfileId');
       } catch (error) {
         console.error('Failed to load profiles:', error);
       } finally {
@@ -280,6 +285,12 @@ export default function App() {
       localStorage.setItem('activeProfileId', String(activeProfile.id));
     }
   }, [activeProfile?.id]);
+
+  useEffect(() => {
+    if (layoutMode === 'desktop') {
+      setIsMobileSidebarOpen(false);
+    }
+  }, [layoutMode]);
 
   // Listen for profile updates (from ProfileSelector modal)
   useEffect(() => {
@@ -2126,6 +2137,8 @@ export default function App() {
     return (
       <ProfileSelector 
         profiles={profiles} 
+        layoutMode={layoutMode}
+        onLayoutModeChange={setLayoutMode}
         onSelect={(profile) => {
           setActiveProfile(profile);
           localStorage.setItem('activeProfileId', String(profile.id));
@@ -2140,83 +2153,252 @@ export default function App() {
     );
   }
 
+  const isMobileLayout = layoutMode === 'mobile';
+
+  const handleSwitchProfile = () => {
+    setIsMobileSidebarOpen(false);
+    setActiveProfile(null);
+  };
+
+  const handleOpenChat = () => {
+    setIsMobileSidebarOpen(false);
+    setIsChatOpen(true);
+  };
+
+  const handleOpenSettings = () => {
+    setIsMobileSidebarOpen(false);
+    setIsSettingsOpen(true);
+  };
+
+  const handleSidebarViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    setIsMobileSidebarOpen(false);
+  };
+
+  const layoutSwitch = (
+    <div className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 p-1 shadow-sm backdrop-blur-sm">
+      <button
+        type="button"
+        onClick={() => setLayoutMode('desktop')}
+        aria-label="Vue Ordinateur"
+        title="Vue Ordinateur"
+        className={`inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+          layoutMode === 'desktop'
+            ? 'bg-white text-zinc-900 shadow-sm'
+            : 'text-white/80 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        <Monitor className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => setLayoutMode('mobile')}
+        aria-label="Vue Mobile"
+        title="Vue Mobile"
+        className={`inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+          layoutMode === 'mobile'
+            ? 'bg-white text-zinc-900 shadow-sm'
+            : 'text-white/80 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        <Smartphone className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
+  const primaryActions = (
+    <div className={`flex items-center ${isMobileLayout ? 'flex-wrap gap-2' : 'gap-4'}`}>
+      <motion.button 
+        whileHover={{ scale: 1.03, filter: 'brightness(1.05)' }}
+        whileTap={{ scale: 0.97 }}
+        onClick={() => setIsFocusMode(true)}
+        className={`${isMobileLayout ? 'flex-1 min-w-[120px] justify-center px-3' : 'px-4'} inline-flex items-center gap-2 py-2 text-sm font-medium text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition-colors shadow-sm`}
+      >
+        <span>🚀</span>
+        <span>{isMobileLayout ? 'Focus' : 'Mode Focus'}</span>
+      </motion.button>
+      <motion.button 
+        whileHover={{ scale: 1.03, filter: 'brightness(1.1)', boxShadow: '0 4px 12px rgba(168, 85, 247, 0.3)' }}
+        whileTap={{ scale: 0.97 }}
+        onClick={() => { setSelectedAppointment(null); setIsAppointmentModalOpen(true); }}
+        className={`${isMobileLayout ? 'flex-1 min-w-[120px] justify-center px-3' : 'px-4'} inline-flex items-center gap-2 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-all shadow-sm`}
+      >
+        <Calendar className="w-4 h-4" />
+        <span>{isMobileLayout ? 'RDV' : 'Rendez-vous'}</span>
+      </motion.button>
+      <motion.button 
+        whileHover={{ scale: 1.03, filter: 'brightness(1.1)', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)' }}
+        whileTap={{ scale: 0.97 }}
+        onClick={() => { setSelectedTask(null); setIsTaskModalOpen(true); }}
+        className={`${isMobileLayout ? 'flex-1 min-w-[120px] justify-center px-3' : 'px-4'} inline-flex items-center gap-2 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-all shadow-sm`}
+      >
+        <Plus className="w-4 h-4" />
+        <span>{isMobileLayout ? 'Tâche' : 'Nouvelle Tâche'}</span>
+      </motion.button>
+    </div>
+  );
+
   return (
-    <div id="app-container" className="flex h-screen bg-zinc-50 text-zinc-900 font-sans overflow-hidden">
-      <Sidebar 
-        profile={activeProfile} 
-        stats={stats}
-        viewMode={viewMode} 
-        setViewMode={setViewMode} 
-        categories={categories}
-        affaires={affaires}
-        customLabels={activeProfile?.custom_labels}
-        onSwitchProfile={() => setActiveProfile(null)}
-        onOpenChat={() => setIsChatOpen(true)}
-        onSettings={() => setIsSettingsOpen(true)}
-        onSelectAffaire={(affaireId) => {
-          setSelectedAffaireFilter(affaireId);
-          setViewMode('list');
-        }}
-        onSelectCategory={(categoryId) => {
-          setSelectedCategoryFilter(categoryId);
-          setViewMode('list');
-        }}
-        onAddCategory={async (name: string, color: string) => {
-          try {
-            const response = await fetch(getAPIUrl('/categories'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                profile_id: activeProfile?.id,
-                name,
-                color
-              })
-            });
-            
-            if (response.ok) {
-              await fetchData();
+    <div id="app-container" className="relative flex h-screen bg-zinc-50 text-zinc-900 font-sans overflow-hidden">
+      {!isMobileLayout && (
+        <Sidebar 
+          profile={activeProfile} 
+          stats={stats}
+          viewMode={viewMode} 
+          setViewMode={handleSidebarViewModeChange} 
+          categories={categories}
+          affaires={affaires}
+          customLabels={activeProfile?.custom_labels}
+          onSwitchProfile={handleSwitchProfile}
+          onOpenChat={handleOpenChat}
+          onSettings={handleOpenSettings}
+          onSelectAffaire={(affaireId) => {
+            setSelectedAffaireFilter(affaireId);
+            setViewMode('list');
+            setIsMobileSidebarOpen(false);
+          }}
+          onSelectCategory={(categoryId) => {
+            setSelectedCategoryFilter(categoryId);
+            setViewMode('list');
+            setIsMobileSidebarOpen(false);
+          }}
+          onAddCategory={async (name: string, color: string) => {
+            try {
+              const response = await fetch(getAPIUrl('/categories'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  profile_id: activeProfile?.id,
+                  name,
+                  color
+                })
+              });
+              
+              if (response.ok) {
+                await fetchData();
+              }
+            } catch (error) {
+              console.error('Failed to add category:', error);
+              throw error;
             }
-          } catch (error) {
-            console.error('Failed to add category:', error);
-            throw error;
-          }
-        }}
-      />
+          }}
+        />
+      )}
+
+      <AnimatePresence>
+        {isMobileLayout && isMobileSidebarOpen && (
+          <>
+            <motion.button
+              type="button"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setIsMobileSidebarOpen(false)}
+              className="fixed inset-0 z-30 bg-black/45 backdrop-blur-[2px]"
+            />
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', stiffness: 280, damping: 30 }}
+              className="fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs"
+            >
+              <div className="absolute right-3 top-3 z-50">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileSidebarOpen(false)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white shadow-lg backdrop-blur-sm"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <Sidebar 
+                profile={activeProfile} 
+                stats={stats}
+                viewMode={viewMode} 
+                setViewMode={handleSidebarViewModeChange} 
+                categories={categories}
+                affaires={affaires}
+                customLabels={activeProfile?.custom_labels}
+                onSwitchProfile={handleSwitchProfile}
+                onOpenChat={handleOpenChat}
+                onSettings={handleOpenSettings}
+                onSelectAffaire={(affaireId) => {
+                  setSelectedAffaireFilter(affaireId);
+                  setViewMode('list');
+                  setIsMobileSidebarOpen(false);
+                }}
+                onSelectCategory={(categoryId) => {
+                  setSelectedCategoryFilter(categoryId);
+                  setViewMode('list');
+                  setIsMobileSidebarOpen(false);
+                }}
+                onAddCategory={async (name: string, color: string) => {
+                  try {
+                    const response = await fetch(getAPIUrl('/categories'), {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        profile_id: activeProfile?.id,
+                        name,
+                        color
+                      })
+                    });
+                    
+                    if (response.ok) {
+                      await fetchData();
+                    }
+                  } catch (error) {
+                    console.error('Failed to add category:', error);
+                    throw error;
+                  }
+                }}
+                className="h-full w-full max-w-none border-r-0 shadow-[4px_0_30px_rgba(0,0,0,0.35)]"
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
       
       <main id="main-content" className="flex-1 flex flex-col relative overflow-hidden">
-        <header id="header-content" className="h-16 border-b border-zinc-200 flex items-center justify-between px-8 shrink-0 relative z-10">
-          <h1 className="text-xl font-semibold capitalize">
-            {getHeaderTitle()}
-          </h1>
-          <div className="flex items-center gap-4">
-            <motion.button 
-              whileHover={{ scale: 1.03, filter: "brightness(1.05)" }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => setIsFocusMode(true)}
-              className="px-4 py-2 text-sm font-medium text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition-colors shadow-sm"
-            >
-              🚀 Mode Focus
-            </motion.button>
-            <motion.button 
-              whileHover={{ scale: 1.03, filter: "brightness(1.1)", boxShadow: "0 4px 12px rgba(168, 85, 247, 0.3)" }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => { setSelectedAppointment(null); setIsAppointmentModalOpen(true); }}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-all shadow-sm"
-            >
-              <Calendar className="w-4 h-4" /> Rendez-vous
-            </motion.button>
-            <motion.button 
-              whileHover={{ scale: 1.03, filter: "brightness(1.1)", boxShadow: "0 4px 12px rgba(79, 70, 229, 0.3)" }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => { setSelectedTask(null); setIsTaskModalOpen(true); }}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-all shadow-sm"
-            >
-              <Plus className="w-4 h-4" /> Nouvelle Tâche
-            </motion.button>
-          </div>
+        <header id="header-content" className={`${isMobileLayout ? 'min-h-16 px-3 py-3' : 'h-16 px-8'} border-b border-zinc-200 shrink-0 relative z-10`}>
+          {isMobileLayout ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileSidebarOpen(true)}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white shadow-sm backdrop-blur-sm"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <h1 className="truncate text-lg font-semibold capitalize">
+                    {getHeaderTitle()}
+                  </h1>
+                  <div className="truncate text-xs text-white/70">{activeProfile.name}</div>
+                </div>
+              </div>
+              <div className="overflow-x-auto pb-1">
+                <div className="w-max min-w-full">{layoutSwitch}</div>
+              </div>
+              {primaryActions}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-between gap-4">
+              <h1 className="text-xl font-semibold capitalize">
+                {getHeaderTitle()}
+              </h1>
+              <div className="flex items-center gap-4">
+                {layoutSwitch}
+                {primaryActions}
+              </div>
+            </div>
+          )}
         </header>
 
-        <div className="flex-1 p-8 relative overflow-hidden">
+        <div className={`${isMobileLayout ? 'px-3 py-4 pb-6' : 'p-8'} flex-1 relative overflow-hidden`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={viewMode}
