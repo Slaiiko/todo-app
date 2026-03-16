@@ -1,6 +1,6 @@
 import { Task, Subtask } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, Circle, Clock, Trash2, Edit2, Briefcase, MessageCircle, ChevronDown, Plus, AlertCircle, Palette, Copy, ImagePlus, X, Pencil, Check } from 'lucide-react';
+import { CheckCircle2, Circle, Clock, Trash2, Edit2, Briefcase, MessageCircle, ChevronDown, Plus, AlertCircle, Palette, Copy, ImagePlus, X, Pencil, Check, ArrowUp, ArrowDown } from 'lucide-react';
 import { format, isPast, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { memo, useState, useEffect, useRef } from 'react';
@@ -29,6 +29,10 @@ interface TaskRowProps {
   onAddAlert?: (taskId: number, taskTitle: string, subtaskId?: number, subtaskTitle?: string) => void;
   onValidateTask?: (taskId: number, taskTitle: string, subtaskId?: number, subtaskTitle?: string) => void;
   currentUserName?: string;
+  onMoveUp?: (task: Task) => void;
+  onMoveDown?: (task: Task) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }
 
 const TaskRowComponent = ({
@@ -50,6 +54,10 @@ const TaskRowComponent = ({
   onAddAlert,
   onValidateTask,
   currentUserName,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: TaskRowProps) => {
   const [showAddFormOnExpand, setShowAddFormOnExpand] = useState(false);
   const [showCommentsPanel, setShowCommentsPanel] = useState(false);
@@ -548,6 +556,36 @@ const TaskRowComponent = ({
                   title="Ajouter une sous-tâche"
                 >
                   <Plus className="w-4 h-4" />
+                </motion.button>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: canMoveUp ? 1.1 : 1 }}
+                  whileTap={{ scale: canMoveUp ? 0.9 : 1 }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (canMoveUp) onMoveUp?.(task);
+                  }}
+                  disabled={!canMoveUp}
+                  className="p-2 text-zinc-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all pointer-events-auto cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Monter"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </motion.button>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: canMoveDown ? 1.1 : 1 }}
+                  whileTap={{ scale: canMoveDown ? 0.9 : 1 }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (canMoveDown) onMoveDown?.(task);
+                  }}
+                  disabled={!canMoveDown}
+                  className="p-2 text-zinc-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-all pointer-events-auto cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Descendre"
+                >
+                  <ArrowDown className="w-4 h-4" />
                 </motion.button>
                 <motion.button 
                   type="button"
