@@ -30,6 +30,14 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
   const [filter, setFilter] = useState<number | null>(null);
   const [commentsMap, setCommentsMap] = useState<Record<string, any[]>>({});
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<number>>(new Set());
+  const [appointmentOrderMap, setAppointmentOrderMap] = useState<Record<number, number>>(() => {
+    try {
+      const saved = localStorage.getItem('appointment-order-map');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   
   // Advanced filters
   const [searchText, setSearchText] = useState('');
@@ -51,6 +59,14 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
       setFilterAffaire(selectedAffaireFilter);
     }
   }, [selectedAffaireFilter]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('appointment-order-map', JSON.stringify(appointmentOrderMap));
+    } catch {
+      // ignore storage errors
+    }
+  }, [appointmentOrderMap]);
 
   // Apply all filters - memoized to prevent unnecessary re-renders
   const filteredTasks = useMemo(() => tasks.filter(t => {
@@ -132,11 +148,69 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
     setExpandedTaskIds(newExpanded);
   };
 
-  const urgentTasks = useMemo(() => filteredTasks.filter(t => !t.is_complete && t.kanban_column === 'Urgent' && !(t as any)._upcomingAppointment).sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)), [filteredTasks]);
-  const todoTasks = useMemo(() => filteredTasks.filter(t => !t.is_complete && t.kanban_column === 'To Do' && !(t as any)._upcomingAppointment).sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)), [filteredTasks]);
-  const inProgressTasks = useMemo(() => filteredTasks.filter(t => !t.is_complete && t.kanban_column === 'In Progress' && !(t as any)._upcomingAppointment).sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)), [filteredTasks]);
-  const upcomingAppointments = useMemo(() => filteredTasks.filter(t => !t.is_complete && (t as any)._upcomingAppointment).sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)), [filteredTasks]);
+  const getDisplayOrder = (task: Task) => {
+    const appointmentId = Number((task as any)._appointmentId || 0);
+    const isAppointmentEntry = Boolean((task as any)._isAppointment && appointmentId > 0);
+    if (isAppointmentEntry) {
+      return appointmentOrderMap[appointmentId] ?? Number((task as any).order_index || 0);
+    }
+    return Number(task.order_index || 0);
+  };
+
+  const urgentTasks = useMemo(() => filteredTasks.filter(t => !t.is_complete && t.kanban_column === 'Urgent' && !(t as any)._upcomingAppointment).sort((a, b) => getDisplayOrder(a) - getDisplayOrder(b)), [filteredTasks, appointmentOrderMap]);
+  const todoTasks = useMemo(() => filteredTasks.filter(t => !t.is_complete && t.kanban_column === 'To Do' && !(t as any)._upcomingAppointment).sort((a, b) => getDisplayOrder(a) - getDisplayOrder(b)), [filteredTasks, appointmentOrderMap]);
+  const inProgressTasks = useMemo(() => filteredTasks.filter(t => !t.is_complete && t.kanban_column === 'In Progress' && !(t as any)._upcomingAppointment).sort((a, b) => getDisplayOrder(a) - getDisplayOrder(b)), [filteredTasks, appointmentOrderMap]);
+  const upcomingAppointments = useMemo(() => filteredTasks.filter(t => !t.is_complete && (t as any)._upcomingAppointment).sort((a, b) => getDisplayOrder(a) - getDisplayOrder(b)), [filteredTasks, appointmentOrderMap]);
   const completedTasks = useMemo(() => filteredTasks.filter(t => t.is_complete), [filteredTasks]);
+
+  const persistTaskOrder = async (orderedTasks: Task[]) => {
+    await Promise.all(
+      orderedTasks.map((task, index) =>
+        fetch(getAPIUrl(`/tasks/${task.id}/kanban`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kanban_column: task.kanban_column || 'To Do',
+            order_index: index,
+          })
+        })
+      )
+    );
+  };
+
+  const moveTaskInSection = async (sectionTasks: Task[], task: Task, direction: -1 | 1) => {
+    const currentIndex = sectionTasks.findIndex((item) => item.id === task.id);
+    const targetIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= sectionTasks.length) {
+      return;
+    }
+
+    const reordered = [...sectionTasks];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    const isAppointmentEntry = Boolean((task as any)._isAppointment && Number((task as any)._appointmentId || 0) > 0);
+    if (isAppointmentEntry) {
+      const nextMap = { ...appointmentOrderMap };
+      reordered.forEach((item, index) => {
+        const appointmentId = Number((item as any)._appointmentId || 0);
+        if (appointmentId > 0) {
+          nextMap[appointmentId] = index;
+        }
+      });
+      setAppointmentOrderMap(nextMap);
+      return;
+    }
+
+    try {
+      await persistTaskOrder(reordered);
+      window.dispatchEvent(new CustomEvent('taskMoved'));
+    } catch (error) {
+      console.error('Failed to reorder tasks:', error);
+      alert('Impossible de modifier l\'ordre pour le moment.');
+    }
+  };
 
   const handleToggleSubtask = async (subtaskId: number, isComplete: boolean) => {
     try {
@@ -389,6 +463,10 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
+                        onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < columnTasks.length - 1}
                       />
                     );
                   })}
@@ -425,6 +503,10 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
+                        onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < columnTasks.length - 1}
                       />
                     );
                   })}
@@ -461,6 +543,10 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
+                        onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < columnTasks.length - 1}
                       />
                     );
                   })}
@@ -497,6 +583,10 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
+                        onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < columnTasks.length - 1}
                       />
                     );
                   })}
