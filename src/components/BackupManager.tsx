@@ -39,9 +39,13 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dbFileInputRef = useRef<HTMLInputElement>(null);
+  const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchBackups();
+    return () => {
+      if (messageTimerRef.current) clearTimeout(messageTimerRef.current);
+    };
   }, []);
 
   const fetchBackups = async () => {
@@ -183,7 +187,8 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
 
       const data = await res.json();
       if (!res.ok || !data?.success) {
-        throw new Error(data?.error || 'Restauration DB échouée');
+        console.error('[import-db] Server error:', res.status, data);
+        throw new Error(data?.error || `Erreur ${res.status}`);
       }
 
       showMessage('success', `Base restaurée : ${data.profileCount ?? 0} profils, ${data.taskCount ?? 0} tâches, ${data.documentCount ?? 0} documents.`);
@@ -302,8 +307,9 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
   };
 
   const showMessage = (type: 'success' | 'error', text: string) => {
+    if (messageTimerRef.current) clearTimeout(messageTimerRef.current);
     setMessage({ type, text });
-    setTimeout(() => setMessage(null), 5000);
+    messageTimerRef.current = setTimeout(() => setMessage(null), 5000);
   };
 
   return (
@@ -331,9 +337,10 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         </button>
       </div>
 
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {message && (
           <motion.div
+            key={message.text + message.type}
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
