@@ -34,6 +34,7 @@ export interface Subtask {
   id: number;
   task_id: number;
   parent_subtask_id?: number | null;
+  order_index?: number;
   title: string;
   is_complete: boolean;
   assignee_id?: number | null;

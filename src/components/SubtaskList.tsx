@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Subtask } from '../types';
-import { CheckCircle2, Circle, Trash2, MessageCircle, Send, X, ChevronDown, Pencil, AlertCircle, Clock, Plus } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, MessageCircle, Send, X, ChevronDown, Pencil, AlertCircle, Clock, Plus, ArrowUp, ArrowDown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { getAPIUrl } from '../utils/api';
@@ -72,7 +72,9 @@ export default function SubtaskList({
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
   const displayedSubtasks = useMemo(
-    () => (subtasks || []).filter((subtask) => getParentSubtaskId(subtask) === parentSubtaskId),
+    () => (subtasks || [])
+      .filter((subtask) => getParentSubtaskId(subtask) === parentSubtaskId)
+      .sort((a, b) => (Number(a.order_index || 0) - Number(b.order_index || 0)) || (Number(a.id || 0) - Number(b.id || 0))),
     [subtasks, parentSubtaskId]
   );
 
@@ -210,6 +212,39 @@ export default function SubtaskList({
       console.error('Error adding subtask:', e);
     } finally {
       setIsAddingSubtask(false);
+    }
+  };
+
+  const persistSiblingOrder = async (orderedSiblings: Subtask[]) => {
+    await Promise.all(
+      orderedSiblings.map((sibling, index) =>
+        fetch(getAPIUrl(`/subtasks/${sibling.id}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_index: index })
+        })
+      )
+    );
+  };
+
+  const handleMoveSubtask = async (siblings: Subtask[], subtaskId: number, direction: -1 | 1) => {
+    const currentIndex = siblings.findIndex((item) => Number(item.id) === Number(subtaskId));
+    const targetIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblings.length) {
+      return;
+    }
+
+    const reordered = [...siblings];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    try {
+      await persistSiblingOrder(reordered);
+      window.dispatchEvent(new CustomEvent('taskMoved'));
+    } catch (error) {
+      console.error('Failed to reorder subtasks:', error);
+      alert('Impossible de modifier l\'ordre des sous-tâches pour le moment.');
     }
   };
 
@@ -390,6 +425,11 @@ export default function SubtaskList({
                       </span>
 
                       <p 
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleEditSubtask(subtask);
+                        }}
                         className={`text-sm transition-colors ${
                           subtask.is_complete ? 'line-through text-zinc-400' : 'text-zinc-700'
                         }`}
@@ -463,6 +503,40 @@ export default function SubtaskList({
                     hoveredId === subtask.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
                   }`}
                 >
+                <motion.button
+                  whileHover={{ scale: index > 0 ? 1.1 : 1 }}
+                  whileTap={{ scale: index > 0 ? 0.9 : 1 }}
+                  onClick={(e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (index > 0) {
+                      handleMoveSubtask(displayedSubtasks, subtask.id, -1);
+                    }
+                  }}
+                  disabled={index === 0}
+                  className="p-1.5 text-zinc-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors pointer-events-auto disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Monter"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: index < displayedSubtasks.length - 1 ? 1.1 : 1 }}
+                  whileTap={{ scale: index < displayedSubtasks.length - 1 ? 0.9 : 1 }}
+                  onClick={(e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (index < displayedSubtasks.length - 1) {
+                      handleMoveSubtask(displayedSubtasks, subtask.id, 1);
+                    }
+                  }}
+                  disabled={index >= displayedSubtasks.length - 1}
+                  className="p-1.5 text-zinc-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors pointer-events-auto disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Descendre"
+                >
+                  <ArrowDown className="w-4 h-4" />
+                </motion.button>
+
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}

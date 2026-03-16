@@ -20,9 +20,26 @@ import TaskDetailModal from './components/TaskDetailModal';
 import AppointmentModal from './components/AppointmentModal';
 import AffairesView from './components/AffairesView';
 import SettingsView from './components/SettingsView';
-import { Plus, AlertCircle, X, CheckCircle2, Clock, Calendar } from 'lucide-react';
+import { Plus, AlertCircle, X, CheckCircle2, Clock, Calendar, MessageCircle } from 'lucide-react';
 import BackupManager from './components/BackupManager';
 import ChatWindow from './components/ChatWindow';
+
+interface ChatConversationSummary {
+  profile: Profile;
+  last_message: string | null;
+  last_message_at: string | null;
+  unread_count: number;
+}
+
+interface ChatToastItem {
+  id: string;
+  signature: string;
+  senderProfileId: number;
+  senderName: string;
+  senderAvatar?: string;
+  senderLogo?: string | null;
+  content: string;
+}
 
 // Color utility functions
 function hexToRGB(hex: string): { r: number; g: number; b: number } {
@@ -163,9 +180,12 @@ export default function App() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [chatToasts, setChatToasts] = useState<ChatToastItem[]>([]);
 
   // Track if we've already checked for overdue tasks on startup
   const hasCheckedOverdueStartup = useRef(false);
+  const chatConversationSignatureRef = useRef<Record<number, string>>({});
+  const chatToastTimeoutsRef = useRef<Record<string, number>>({});
 
   // Calculate cumulative validated time from subtasks (exclude focus time)
   const getCumulativeSubtaskTime = (taskId: number): number => {
@@ -682,6 +702,102 @@ export default function App() {
     window.addEventListener('taskMoved', handleTaskMoved);
     return () => window.removeEventListener('taskMoved', handleTaskMoved);
   }, [activeProfile]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(chatToastTimeoutsRef.current).forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, []);
+
+  useEffect(() => {
+    chatConversationSignatureRef.current = {};
+    setChatToasts([]);
+    setAlerts([]);
+    setExpandedAlertId(null);
+    setOverdueAlerts([]);
+    setShowOverdueAlert(false);
+    setValidationModal({ isOpen: false, taskId: 0, subtaskId: undefined, taskTitle: '' });
+  }, [activeProfile?.id]);
+
+  const dismissChatToast = (toastId: string) => {
+    if (chatToastTimeoutsRef.current[toastId]) {
+      window.clearTimeout(chatToastTimeoutsRef.current[toastId]);
+      delete chatToastTimeoutsRef.current[toastId];
+    }
+    setChatToasts((current) => current.filter((toast) => toast.id !== toastId));
+  };
+
+  const enqueueChatToast = (toast: ChatToastItem) => {
+    setChatToasts((current) => {
+      if (current.some((item) => item.signature === toast.signature)) {
+        return current;
+      }
+      return [toast, ...current].slice(0, 4);
+    });
+
+    chatToastTimeoutsRef.current[toast.id] = window.setTimeout(() => {
+      dismissChatToast(toast.id);
+    }, 6500);
+  };
+
+  useEffect(() => {
+    if (!activeProfile?.id) return;
+
+    let isCancelled = false;
+
+    const pollChatNotifications = async (isInitial: boolean) => {
+      try {
+        const response = await fetch(getAPIUrl(`/chat/conversations/${activeProfile.id}`));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+        if (isCancelled) return;
+
+        const conversations = Array.isArray(data) ? data as ChatConversationSummary[] : [];
+        const nextSignatures: Record<number, string> = {};
+
+        conversations.forEach((conversation) => {
+          const senderId = Number(conversation?.profile?.id || 0);
+          if (senderId <= 0) return;
+
+          const signature = `${conversation.last_message_at || ''}|${conversation.unread_count || 0}|${conversation.last_message || ''}`;
+          nextSignatures[senderId] = signature;
+
+          const previousSignature = chatConversationSignatureRef.current[senderId];
+          if (
+            !isInitial &&
+            !isChatOpen &&
+            previousSignature &&
+            previousSignature !== signature &&
+            Number(conversation.unread_count || 0) > 0 &&
+            String(conversation.last_message || '').trim()
+          ) {
+            enqueueChatToast({
+              id: `${activeProfile.id}-${senderId}-${Date.now()}`,
+              signature,
+              senderProfileId: senderId,
+              senderName: conversation.profile.name,
+              senderAvatar: conversation.profile.avatar,
+              senderLogo: conversation.profile.logo,
+              content: String(conversation.last_message || '')
+            });
+          }
+        });
+
+        chatConversationSignatureRef.current = nextSignatures;
+      } catch (error) {
+        console.error('Failed to poll chat notifications:', error);
+      }
+    };
+
+    pollChatNotifications(true);
+    const interval = window.setInterval(() => pollChatNotifications(false), 4000);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeProfile?.id, isChatOpen]);
 
   const handleAddAlert = (taskId: number, taskTitle: string, subtaskId?: number, subtaskTitle?: string) => {
     if (taskId <= 0) {
@@ -2509,6 +2625,55 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Chat Toasts */}
+      <div className="fixed bottom-24 right-4 z-50 space-y-2">
+        <AnimatePresence>
+          {chatToasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, y: 16, x: 16 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              exit={{ opacity: 0, y: 16, x: 16 }}
+              className="w-80 max-w-[calc(100vw-2rem)] bg-white border border-indigo-100 shadow-xl rounded-2xl overflow-hidden"
+            >
+              <div className="p-4 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-indigo-100 overflow-hidden flex items-center justify-center shrink-0">
+                  {toast.senderLogo ? (
+                    <img src={toast.senderLogo} alt={toast.senderName} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-lg">{toast.senderAvatar || '👤'}</span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <MessageCircle className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <p className="text-sm font-semibold text-zinc-900 truncate">{toast.senderName}</p>
+                    </div>
+                    <button
+                      onClick={() => dismissChatToast(toast.id)}
+                      className="text-zinc-400 hover:text-zinc-600 shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-sm text-zinc-600 mt-1 break-words line-clamp-3">{toast.content}</p>
+                  <button
+                    onClick={() => {
+                      dismissChatToast(toast.id);
+                      setIsChatOpen(true);
+                    }}
+                    className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                  >
+                    Ouvrir la discussion
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
       {/* Alerts Popup */}
       <div className="fixed bottom-4 right-4 z-50 space-y-2">

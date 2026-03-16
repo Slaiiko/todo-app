@@ -60,6 +60,12 @@ try {
 }
 
 try {
+  db.exec(`ALTER TABLE subtasks ADD COLUMN order_index INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column might already exist
+}
+
+try {
   db.exec(`ALTER TABLE tasks ADD COLUMN bg_color TEXT DEFAULT NULL`);
 } catch (e) {
   // Column might already exist
@@ -232,6 +238,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER,
     parent_subtask_id INTEGER,
+    order_index INTEGER DEFAULT 0,
     title TEXT NOT NULL,
     is_complete BOOLEAN DEFAULT 0,
     time_spent INTEGER DEFAULT 0,
@@ -845,7 +852,7 @@ async function startServer() {
     
     // Fetch subtasks and assignees for each task
     const tasksWithSubtasks = tasks.map((task: any) => {
-      const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ?").all(task.id);
+      const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY COALESCE(parent_subtask_id, 0) ASC, order_index ASC, id ASC").all(task.id);
       const assignees = db.prepare("SELECT * FROM task_assignees WHERE task_id = ? ORDER BY created_at ASC").all(task.id);
       return { ...task, subtasks, assignees };
     });
@@ -864,7 +871,7 @@ async function startServer() {
     `).all(req.params.profileId);
     
     const tasksWithSubtasks = tasks.map((task: any) => {
-      const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ?").all(task.id);
+      const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY COALESCE(parent_subtask_id, 0) ASC, order_index ASC, id ASC").all(task.id);
       const assignees = db.prepare("SELECT * FROM task_assignees WHERE task_id = ? ORDER BY created_at ASC").all(task.id);
       return { ...task, subtasks, assignees };
     });
@@ -883,7 +890,7 @@ async function startServer() {
     `).all(req.params.profileId);
     
     const tasksWithSubtasks = tasks.map((task: any) => {
-      const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ?").all(task.id);
+      const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY COALESCE(parent_subtask_id, 0) ASC, order_index ASC, id ASC").all(task.id);
       const assignees = db.prepare("SELECT * FROM task_assignees WHERE task_id = ? ORDER BY created_at ASC").all(task.id);
       return { ...task, subtasks, assignees };
     });
@@ -1084,21 +1091,24 @@ async function startServer() {
     const { task_id, title } = req.body;
     const rawParentSubtaskId = req.body.parent_subtask_id ?? req.body.parentSubtaskId ?? null;
     const normalizedParentSubtaskId = rawParentSubtaskId == null ? null : Number(rawParentSubtaskId);
-    const stmt = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, title) VALUES (?, ?, ?)");
-    const info = stmt.run(task_id, normalizedParentSubtaskId, title);
+    const nextOrderRow = db.prepare("SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM subtasks WHERE task_id = ? AND COALESCE(parent_subtask_id, 0) = COALESCE(?, 0)").get(task_id, normalizedParentSubtaskId) as any;
+    const nextOrder = Number(nextOrderRow?.next_order ?? 0) || 0;
+    const stmt = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, order_index, title) VALUES (?, ?, ?, ?)");
+    const info = stmt.run(task_id, normalizedParentSubtaskId, nextOrder, title);
     recalculateTaskTimeFromCompletedSubtasks(Number(task_id));
     res.json({
       id: info.lastInsertRowid,
       task_id,
       parent_subtask_id: normalizedParentSubtaskId,
       parentSubtaskId: normalizedParentSubtaskId,
+      order_index: nextOrder,
       title,
       is_complete: 0
     });
   });
 
   app.put("/api/subtasks/:id", (req, res) => {
-    const { is_complete, title, time_spent, focus_time_spent, validation_time_spent, completed_at } = req.body;
+    const { is_complete, title, time_spent, focus_time_spent, validation_time_spent, completed_at, order_index } = req.body;
     const subtask = db.prepare("SELECT * FROM subtasks WHERE id = ?").get(req.params.id) as any;
     if (!subtask) {
       return res.status(404).json({ error: 'Subtask not found' });
@@ -1148,6 +1158,10 @@ async function startServer() {
     if (resolvedParentSubtaskId !== undefined) {
       updates.push("parent_subtask_id = ?");
       params.push(resolvedParentSubtaskId == null ? null : Number(resolvedParentSubtaskId));
+    }
+    if (order_index !== undefined) {
+      updates.push("order_index = ?");
+      params.push(Number(order_index) || 0);
     }
 
     if (updates.length > 0) {
