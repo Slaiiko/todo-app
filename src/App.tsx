@@ -246,8 +246,9 @@ export default function App() {
         setProfiles(safeProfiles);
 
         if (safeProfiles.length > 0) {
-          // Always show profile selector — never auto-login
-          setActiveProfile(null);
+          const savedActiveProfileId = Number(localStorage.getItem('activeProfileId') || 0);
+          const savedActiveProfile = safeProfiles.find((profile: Profile) => Number(profile.id) === savedActiveProfileId && !profile.is_archived);
+          setActiveProfile(savedActiveProfile || null);
         } else {
           setActiveProfile(null);
           setTasks([]);
@@ -1068,36 +1069,47 @@ export default function App() {
 
   const fetchData = async () => {
     if (!activeProfile) return;
-    
-    const [tasksRes, archiveRes, trashRes, categoriesRes, affairesRes, statsRes, appointmentsRes] = await Promise.all([
-      fetch(getAPIUrl(`/tasks/${activeProfile.id}`)),
-      fetch(getAPIUrl(`/tasks/${activeProfile.id}/archive`)),
-      fetch(getAPIUrl(`/tasks/${activeProfile.id}/trash`)),
-      fetch(getAPIUrl(`/categories/${activeProfile.id}`)),
-      fetch(getAPIUrl(`/affaires/${activeProfile.id}`)),
-      fetch(getAPIUrl(`/stats/${activeProfile.id}`)),
-      fetch(getAPIUrl(`/appointments/${activeProfile.id}`))
-    ]);
-    
-    const tasksData = await tasksRes.json();
-    const normalizedTasksData = (tasksData || []).map((task: any) => ({
-      ...task,
-      subtasks: (task.subtasks || []).map((subtask: any) => ({
-        ...subtask,
-        id: Number(subtask.id),
-        task_id: Number(subtask.task_id),
-        parent_subtask_id: (subtask.parent_subtask_id ?? subtask.parentSubtaskId) == null
-          ? null
-          : Number(subtask.parent_subtask_id ?? subtask.parentSubtaskId)
-      }))
-    }));
-    setTasks(normalizedTasksData);
-    setArchivedTasks(await archiveRes.json());
-    setTrashedTasks(await trashRes.json());
-    setCategories(await categoriesRes.json());
-    setAffaires(await affairesRes.json());
-    setStats(await statsRes.json());
-    setAppointments(await appointmentsRes.json());
+
+    try {
+      const [tasksRes, archiveRes, trashRes, categoriesRes, affairesRes, statsRes, appointmentsRes] = await Promise.all([
+        fetch(getAPIUrl(`/tasks/${activeProfile.id}`)),
+        fetch(getAPIUrl(`/tasks/${activeProfile.id}/archive`)),
+        fetch(getAPIUrl(`/tasks/${activeProfile.id}/trash`)),
+        fetch(getAPIUrl(`/categories/${activeProfile.id}`)),
+        fetch(getAPIUrl(`/affaires/${activeProfile.id}`)),
+        fetch(getAPIUrl(`/stats/${activeProfile.id}`)),
+        fetch(getAPIUrl(`/appointments/${activeProfile.id}`))
+      ]);
+
+      const responses = [tasksRes, archiveRes, trashRes, categoriesRes, affairesRes, statsRes, appointmentsRes];
+      const failedResponse = responses.find((response) => !response.ok);
+      if (failedResponse) {
+        throw new Error(`HTTP ${failedResponse.status}`);
+      }
+
+      const tasksData = await tasksRes.json();
+      const normalizedTasksData = (tasksData || []).map((task: any) => ({
+        ...task,
+        subtasks: (task.subtasks || []).map((subtask: any) => ({
+          ...subtask,
+          id: Number(subtask.id),
+          task_id: Number(subtask.task_id),
+          parent_subtask_id: (subtask.parent_subtask_id ?? subtask.parentSubtaskId) == null
+            ? null
+            : Number(subtask.parent_subtask_id ?? subtask.parentSubtaskId)
+        }))
+      }));
+
+      setTasks(normalizedTasksData);
+      setArchivedTasks(await archiveRes.json());
+      setTrashedTasks(await trashRes.json());
+      setCategories(await categoriesRes.json());
+      setAffaires(await affairesRes.json());
+      setStats(await statsRes.json());
+      setAppointments(await appointmentsRes.json());
+    } catch (error) {
+      console.error('Failed to fetch app data:', error);
+    }
   };
 
   const refreshProfilesAfterRestore = async () => {

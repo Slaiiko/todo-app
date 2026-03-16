@@ -25,6 +25,7 @@ interface Props {
 
 export default function BackupManager({ profileId, onRestoreComplete }: Props) {
   const [backups, setBackups] = useState<Backup[]>([]);
+  const [showBackupTools, setShowBackupTools] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isExportingDb, setIsExportingDb] = useState(false);
@@ -314,8 +315,20 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-zinc-900">Sauvegardes & Restauration</h2>
-          <p className="text-zinc-500 mt-1">Exportez ou importez vos données (glissez-déposez un fichier ici pour restaurer)</p>
+          <p className="text-zinc-500 mt-1">Affichez les outils de sauvegarde uniquement quand vous en avez besoin.</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowBackupTools((current) => !current)}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-colors ${
+            showBackupTools
+              ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+              : 'bg-indigo-600 text-white hover:bg-indigo-700'
+          }`}
+        >
+          <DatabaseBackup className="w-5 h-5" />
+          {showBackupTools ? 'Masquer Sauvegarde' : 'Sauvegarde'}
+        </button>
       </div>
 
       <AnimatePresence>
@@ -332,6 +345,15 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {showBackupTools && (
+          <motion.div
+            initial={{ opacity: 0, height: 0, y: -8 }}
+            animate={{ opacity: 1, height: 'auto', y: 0 }}
+            exit={{ opacity: 0, height: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Auto-Backup Section */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200 flex flex-col md:col-span-2">
@@ -491,6 +513,9 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
           </div>
         </div>
       </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50/50">

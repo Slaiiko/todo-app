@@ -71,12 +71,33 @@ export default function SubtaskList({
   const [showAddForm, setShowAddForm] = useState(initialShowAddForm || false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const [localOrderMap, setLocalOrderMap] = useState<Record<number, number>>(() => {
+    try {
+      const saved = localStorage.getItem('subtask-order-map');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const getDisplayOrder = (subtask: Subtask) => {
+    const localValue = localOrderMap[Number(subtask.id)];
+    if (localValue !== undefined) return Number(localValue) || 0;
+    return Number(subtask.order_index || 0) || 0;
+  };
   const displayedSubtasks = useMemo(
     () => (subtasks || [])
       .filter((subtask) => getParentSubtaskId(subtask) === parentSubtaskId)
-      .sort((a, b) => (Number(a.order_index || 0) - Number(b.order_index || 0)) || (Number(a.id || 0) - Number(b.id || 0))),
-    [subtasks, parentSubtaskId]
+      .sort((a, b) => (getDisplayOrder(a) - getDisplayOrder(b)) || (Number(a.id || 0) - Number(b.id || 0))),
+    [subtasks, parentSubtaskId, localOrderMap]
   );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('subtask-order-map', JSON.stringify(localOrderMap));
+    } catch {
+      // ignore localStorage issues
+    }
+  }, [localOrderMap]);
 
   // Load comments from localStorage
   useEffect(() => {
@@ -239,10 +260,18 @@ export default function SubtaskList({
     const [moved] = reordered.splice(currentIndex, 1);
     reordered.splice(targetIndex, 0, moved);
 
+    const previousOrderMap = { ...localOrderMap };
+    const nextOrderMap = { ...localOrderMap };
+    reordered.forEach((sibling, index) => {
+      nextOrderMap[Number(sibling.id)] = index;
+    });
+    setLocalOrderMap(nextOrderMap);
+
     try {
       await persistSiblingOrder(reordered);
       window.dispatchEvent(new CustomEvent('taskMoved'));
     } catch (error) {
+      setLocalOrderMap(previousOrderMap);
       console.error('Failed to reorder subtasks:', error);
       alert('Impossible de modifier l\'ordre des sous-tâches pour le moment.');
     }

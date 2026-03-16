@@ -29,6 +29,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
   const [isImporting, setIsImporting] = useState(false);
   const [isExportingAllJson, setIsExportingAllJson] = useState(false);
   const [isExportingAllDb, setIsExportingAllDb] = useState(false);
+  const [showBackupTools, setShowBackupTools] = useState(false);
   const [importTarget, setImportTarget] = useState<'profile' | 'full'>('profile');
   const [importKind, setImportKind] = useState<'json' | 'db'>('json');
   const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -587,58 +588,85 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
           )}
         </div>
 
-        {/* Full extraction buttons */}
-        <div className="mt-6 mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="mt-6 mb-4 flex justify-center">
           <button
-            onClick={handleExportAllJson}
-            disabled={isExportingAllJson}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
-          >
-            {isExportingAllJson ? <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> : <FileJson className="w-4 h-4" />}
-            {isExportingAllJson ? 'Extraction JSON...' : 'Extraction Complète JSON'}
-          </button>
-
-          <button
-            onClick={handleExportAllDb}
-            disabled={isExportingAllDb}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white font-medium rounded-xl hover:bg-amber-700 transition-colors disabled:opacity-50"
-          >
-            {isExportingAllDb ? <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> : <DatabaseBackup className="w-4 h-4" />}
-            {isExportingAllDb ? 'Extraction DB...' : 'Extraction Complète DB'}
-          </button>
-        </div>
-
-        {/* Import backup drop zone */}
-        <div className="mt-3 mb-4">
-          <input
-            ref={importFileRef}
-            type="file"
-            accept=".json,.jsonbak,.db,.sqlite,.sqlite3"
-            onChange={handleImportFileChange}
-            className="hidden"
-          />
-          <div
-            onDragOver={handleDropZoneDragOver}
-            onDragLeave={handleDropZoneDragLeave}
-            onDrop={handleDropZoneDrop}
-            onClick={() => importFileRef.current?.click()}
-            className={`cursor-pointer border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-3 transition-all ${
-              isDragOver
-                ? 'border-indigo-400 bg-indigo-500/10 scale-[1.01]'
-                : 'border-zinc-700 hover:border-zinc-500 bg-zinc-800/40 hover:bg-zinc-800/70'
+            type="button"
+            onClick={() => setShowBackupTools((current) => !current)}
+            className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-colors ${
+              showBackupTools
+                ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                : 'bg-indigo-600 text-white hover:bg-indigo-700'
             }`}
           >
-            <div className={`p-3 rounded-full transition-colors ${ isDragOver ? 'bg-indigo-500/20' : 'bg-zinc-700/50' }`}>
-              <Upload className={`w-6 h-6 ${ isDragOver ? 'text-indigo-400' : 'text-zinc-400' }`} />
-            </div>
-            <div className="text-center">
-              <p className={`font-medium text-sm ${ isDragOver ? 'text-indigo-300' : 'text-zinc-300' }`}>
-                {isDragOver ? 'Déposez le fichier ici' : 'Importer des données (Profil ou Complet)'}
-              </p>
-              <p className="text-xs text-zinc-500 mt-1">Glissez-déposez .json/.jsonbak/.db ou cliquez pour choisir</p>
-            </div>
-          </div>
+            <DatabaseBackup className="w-4 h-4" />
+            {showBackupTools ? 'Masquer Sauvegarde' : 'Sauvegarde'}
+          </button>
         </div>
+
+        <AnimatePresence>
+          {showBackupTools && (
+            <motion.div
+              initial={{ opacity: 0, height: 0, y: -8 }}
+              animate={{ opacity: 1, height: 'auto', y: 0 }}
+              exit={{ opacity: 0, height: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              {/* Full extraction buttons */}
+              <div className="mt-2 mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  onClick={handleExportAllJson}
+                  disabled={isExportingAllJson}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                >
+                  {isExportingAllJson ? <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> : <FileJson className="w-4 h-4" />}
+                  {isExportingAllJson ? 'Extraction JSON...' : 'Extraction Complète JSON'}
+                </button>
+
+                <button
+                  onClick={handleExportAllDb}
+                  disabled={isExportingAllDb}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white font-medium rounded-xl hover:bg-amber-700 transition-colors disabled:opacity-50"
+                >
+                  {isExportingAllDb ? <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> : <DatabaseBackup className="w-4 h-4" />}
+                  {isExportingAllDb ? 'Extraction DB...' : 'Extraction Complète DB'}
+                </button>
+              </div>
+
+              {/* Import backup drop zone */}
+              <div className="mt-3 mb-4">
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".json,.jsonbak,.db,.sqlite,.sqlite3"
+                  onChange={handleImportFileChange}
+                  className="hidden"
+                />
+                <div
+                  onDragOver={handleDropZoneDragOver}
+                  onDragLeave={handleDropZoneDragLeave}
+                  onDrop={handleDropZoneDrop}
+                  onClick={() => importFileRef.current?.click()}
+                  className={`cursor-pointer border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-3 transition-all ${
+                    isDragOver
+                      ? 'border-indigo-400 bg-indigo-500/10 scale-[1.01]'
+                      : 'border-zinc-700 hover:border-zinc-500 bg-zinc-800/40 hover:bg-zinc-800/70'
+                  }`}
+                >
+                  <div className={`p-3 rounded-full transition-colors ${ isDragOver ? 'bg-indigo-500/20' : 'bg-zinc-700/50'}`}>
+                    <Upload className={`w-6 h-6 ${ isDragOver ? 'text-indigo-400' : 'text-zinc-400' }`} />
+                  </div>
+                  <div className="text-center">
+                    <p className={`font-medium text-sm ${ isDragOver ? 'text-indigo-300' : 'text-zinc-300' }`}>
+                      {isDragOver ? 'Déposez le fichier ici' : 'Importer des données (Profil ou Complet)'}
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-1">Glissez-déposez .json/.jsonbak/.db ou cliquez pour choisir</p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Archived Profiles */}
         <AnimatePresence>

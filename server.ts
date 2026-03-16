@@ -9,10 +9,16 @@ import { fileURLToPath } from "url";
 
 const PORT = Number(process.env.PORT || 3000);
 const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(PROJECT_ROOT, "todo_app.db");
-const BACKUP_DIR = path.join(PROJECT_ROOT, "backups");
+const DATA_ROOT = process.env.RENDER_DISK_MOUNT_PATH || process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/var/data' : PROJECT_ROOT);
+const DB_PATH = path.join(DATA_ROOT, "todo_app.db");
+const BACKUP_DIR = path.join(DATA_ROOT, "backups");
 
+console.log("Using data root:", DATA_ROOT);
 console.log("Using database:", DB_PATH);
+
+if (!fs.existsSync(DATA_ROOT)) {
+  fs.mkdirSync(DATA_ROOT, { recursive: true });
+}
 
 if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
