@@ -27,6 +27,8 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isExportingDb, setIsExportingDb] = useState(false);
+  const [isImportingDb, setIsImportingDb] = useState(false);
   const [password, setPassword] = useState('');
   const [useEncryption, setUseEncryption] = useState(false);
   const [importMode, setImportMode] = useState<'full' | 'merge' | 'profile'>('full');
@@ -35,6 +37,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
   const [showImportModal, setShowImportModal] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dbFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchBackups();
@@ -79,6 +82,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           profileId, 
+          scope: 'profile',
           password: useEncryption ? password : null,
           comments: allComments
         })
@@ -111,6 +115,86 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
       fetchBackups();
     } catch (error) {
       console.error('Failed to delete backup', error);
+    }
+  };
+
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const commaIndex = result.indexOf(',');
+        if (commaIndex === -1) {
+          reject(new Error('Impossible de lire le fichier'));
+          return;
+        }
+        resolve(result.slice(commaIndex + 1));
+      };
+      reader.onerror = () => reject(reader.error || new Error('Lecture du fichier échouée'));
+      reader.readAsDataURL(file);
+    });
+
+  const handleExportDatabase = async () => {
+    setIsExportingDb(true);
+    try {
+      const res = await fetch(getAPIUrl('/backups/export-db'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, scope: 'profile' })
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Erreur lors de l\'export de la base');
+      }
+
+      showMessage('success', `Base exportée : ${data.filename} (${data.size} KB)`);
+      fetchBackups();
+      window.location.href = `/api/backups/download/${data.filename}`;
+    } catch (error: any) {
+      showMessage('error', error?.message || 'Erreur lors de l\'export de la base');
+    } finally {
+      setIsExportingDb(false);
+    }
+  };
+
+  const handleImportDatabaseFile = async (file: File) => {
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith('.db') && !lower.endsWith('.sqlite') && !lower.endsWith('.sqlite3')) {
+      showMessage('error', 'Format non supporté. Utilisez un fichier .db, .sqlite ou .sqlite3');
+      return;
+    }
+
+    if (!confirm('⚠️ Cette restauration de base complète remplacera toutes les données actuelles. Continuer ?')) {
+      return;
+    }
+
+    setIsImportingDb(true);
+    try {
+      const base64 = await readFileAsBase64(file);
+      const res = await fetch(getAPIUrl('/backups/import-db'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          fileContentBase64: base64
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Restauration DB échouée');
+      }
+
+      showMessage('success', `Base restaurée : ${data.profileCount ?? 0} profils, ${data.taskCount ?? 0} tâches, ${data.documentCount ?? 0} documents.`);
+      fetchBackups();
+      onRestoreComplete();
+    } catch (error: any) {
+      showMessage('error', error?.message || 'Erreur lors de la restauration de la base');
+    } finally {
+      setIsImportingDb(false);
+      if (dbFileInputRef.current) {
+        dbFileInputRef.current.value = '';
+      }
     }
   };
 
@@ -361,6 +445,50 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
             <FileJson className="w-5 h-5" />
             Sélectionner un fichier
           </button>
+        </div>
+
+        {/* Database File Section */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200 flex flex-col md:col-span-2">
+          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mb-4">
+            <DatabaseBackup className="w-6 h-6" />
+          </div>
+          <h3 className="text-lg font-bold text-zinc-900 mb-2">Sauvegarde complète Base de données (.db)</h3>
+          <p className="text-zinc-500 text-sm mb-6">
+            Inclut toutes les tables SQL (documents, vignettes, profils et relations). Utilisez cette option pour une copie complète binaire.
+          </p>
+
+          <input
+            ref={dbFileInputRef}
+            type="file"
+            accept=".db,.sqlite,.sqlite3"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                handleImportDatabaseFile(file);
+              }
+            }}
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <button
+              onClick={handleExportDatabase}
+              disabled={isExportingDb}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white font-medium rounded-xl hover:bg-amber-700 transition-colors disabled:opacity-50"
+            >
+              {isExportingDb ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+              {isExportingDb ? 'Export DB...' : 'Exporter la base (.db)'}
+            </button>
+
+            <button
+              onClick={() => dbFileInputRef.current?.click()}
+              disabled={isImportingDb}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border-2 border-dashed border-zinc-300 text-zinc-600 font-medium rounded-xl hover:border-amber-500 hover:text-amber-700 transition-colors disabled:opacity-50"
+            >
+              {isImportingDb ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+              {isImportingDb ? 'Import DB...' : 'Importer un fichier .db'}
+            </button>
+          </div>
         </div>
       </div>
 

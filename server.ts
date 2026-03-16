@@ -1134,26 +1134,76 @@ async function startServer() {
 
   app.post("/api/backups/export", (req, res) => {
     try {
-      const { profileId, password, comments } = req.body;
-      const profile = db.prepare("SELECT * FROM profiles WHERE id = ?").get(profileId) as any;
-      if (!profile) return res.status(404).json({ error: "Profile not found" });
+      const { profileId, password, comments, scope } = req.body;
+      const exportScope = scope === 'profile' ? 'profile' : 'full';
 
-      const profiles = db.prepare("SELECT * FROM profiles").all();
-      const tasks = db.prepare("SELECT * FROM tasks").all();
-      const subtasks = db.prepare("SELECT * FROM subtasks").all();
-      const categories = db.prepare("SELECT * FROM categories").all();
-      const affaires = db.prepare("SELECT * FROM affaires").all();
-      const pomodoro = db.prepare("SELECT * FROM pomodoro").all();
-      const task_assignees = db.prepare("SELECT * FROM task_assignees").all();
-      const appointments = db.prepare("SELECT * FROM appointments").all();
-      const appointment_participants = db.prepare("SELECT * FROM appointment_participants").all();
-      const documents = db.prepare("SELECT * FROM documents").all();
+      const allProfiles = db.prepare("SELECT * FROM profiles").all() as any[];
+      const allTasks = db.prepare("SELECT * FROM tasks").all() as any[];
+      const allSubtasks = db.prepare("SELECT * FROM subtasks").all() as any[];
+      const allCategories = db.prepare("SELECT * FROM categories").all() as any[];
+      const allAffaires = db.prepare("SELECT * FROM affaires").all() as any[];
+      const allPomodoro = db.prepare("SELECT * FROM pomodoro").all() as any[];
+      const allAssignees = db.prepare("SELECT * FROM task_assignees").all() as any[];
+      const allAppointments = db.prepare("SELECT * FROM appointments").all() as any[];
+      const allParticipants = db.prepare("SELECT * FROM appointment_participants").all() as any[];
+      const allDocuments = db.prepare("SELECT * FROM documents").all() as any[];
+
+      let profiles: any[] = [];
+      let tasks: any[] = [];
+      let subtasks: any[] = [];
+      let categories: any[] = [];
+      let affaires: any[] = [];
+      let pomodoro: any[] = [];
+      let task_assignees: any[] = [];
+      let appointments: any[] = [];
+      let appointment_participants: any[] = [];
+      let documents: any[] = [];
+      let exportedBy = 'System';
+
+      if (exportScope === 'full') {
+        profiles = allProfiles;
+        tasks = allTasks;
+        subtasks = allSubtasks;
+        categories = allCategories;
+        affaires = allAffaires;
+        pomodoro = allPomodoro;
+        task_assignees = allAssignees;
+        appointments = allAppointments;
+        appointment_participants = allParticipants;
+        documents = allDocuments;
+        exportedBy = 'All profiles';
+      } else {
+        const profile = db.prepare("SELECT * FROM profiles WHERE id = ?").get(profileId) as any;
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        profiles = allProfiles.filter((p) => Number(p.id) === Number(profileId));
+        categories = allCategories.filter((c) => Number(c.profile_id) === Number(profileId));
+        affaires = allAffaires.filter((a) => Number(a.profile_id) === Number(profileId));
+        tasks = allTasks.filter((t) => Number(t.profile_id) === Number(profileId));
+
+        const taskIds = new Set(tasks.map((t) => Number(t.id)));
+        subtasks = allSubtasks.filter((s) => taskIds.has(Number(s.task_id)));
+        const subtaskIds = new Set(subtasks.map((s) => Number(s.id)));
+
+        task_assignees = allAssignees.filter((ta) => taskIds.has(Number(ta.task_id)));
+        pomodoro = allPomodoro.filter((p) => Number(p.profile_id) === Number(profileId) || taskIds.has(Number(p.task_id)));
+        appointments = allAppointments.filter((a) => Number(a.profile_id) === Number(profileId));
+        const appointmentIds = new Set(appointments.map((a) => Number(a.id)));
+        appointment_participants = allParticipants.filter((ap) => appointmentIds.has(Number(ap.appointment_id)));
+        documents = allDocuments.filter((d) => {
+          const entityType = String(d.entity_type || '').toLowerCase();
+          const entityId = Number(d.entity_id);
+          return (entityType === 'task' && taskIds.has(entityId)) || (entityType === 'subtask' && subtaskIds.has(entityId));
+        });
+
+        exportedBy = profile.name;
+      }
 
       const backupData = {
         app: "TodoApp",
         version: "4.1",
         exported_at: new Date().toISOString(),
-        exported_by: profile.name,
+        exported_by: exportedBy,
         profiles,
         tasks,
         subtasks,
@@ -1195,7 +1245,8 @@ async function startServer() {
       }
 
       const dateStr = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 16);
-      const filename = `TodoBackup_${dateStr}_${profile.name.replace(/\s+/g, "_")}${extension}`;
+      const exportLabel = exportScope === 'full' ? 'ALL_PROFILES' : exportedBy.replace(/\s+/g, "_");
+      const filename = `TodoBackup_${dateStr}_${exportLabel}${extension}`;
       const filepath = path.join(BACKUP_DIR, filename);
 
       fs.writeFileSync(filepath, finalData);
@@ -1207,9 +1258,387 @@ async function startServer() {
         INSERT INTO backup_log (filename, path, profile_id, task_count, file_size_kb, is_encrypted)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
-      stmt.run(filename, filepath, profileId, tasks.length, fileSizeKb, isEncrypted ? 1 : 0);
+      stmt.run(filename, filepath, exportScope === 'full' ? null : profileId, tasks.length, fileSizeKb, isEncrypted ? 1 : 0);
 
       res.json({ success: true, filename, size: fileSizeKb, isEncrypted });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/backups/export-db", (req, res) => {
+    try {
+      const { profileId, scope } = req.body;
+      const exportScope = scope === 'profile' ? 'profile' : 'full';
+
+      let safeLabel = 'ALL_PROFILES';
+      let backupProfileId: number | null = null;
+      const dateStr = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 16);
+      const filenameBase = `TodoDatabase_${dateStr}`;
+      const filepath = path.join(BACKUP_DIR, `${filenameBase}.db`);
+
+      if (exportScope === 'full') {
+        fs.copyFileSync(DB_PATH, filepath);
+      } else {
+        const profile = db.prepare("SELECT * FROM profiles WHERE id = ?").get(profileId) as any;
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        safeLabel = String(profile.name || 'profile').replace(/[^a-zA-Z0-9_-]/g, '_');
+        backupProfileId = Number(profileId);
+
+        const profileFilePath = path.join(BACKUP_DIR, `${filenameBase}_${safeLabel}.db`);
+        fs.copyFileSync(DB_PATH, profileFilePath);
+
+        const tempDb = new Database(profileFilePath);
+        tempDb.pragma("foreign_keys = OFF");
+        const keepProfileId = Number(profileId);
+
+        tempDb.transaction(() => {
+          tempDb.prepare(`
+            DELETE FROM appointment_participants
+            WHERE appointment_id IN (SELECT id FROM appointments WHERE profile_id != ?)
+          `).run(keepProfileId);
+
+          tempDb.prepare("DELETE FROM appointments WHERE profile_id != ?").run(keepProfileId);
+
+          tempDb.prepare(`
+            DELETE FROM documents
+            WHERE entity_type = 'task'
+              AND entity_id IN (SELECT id FROM tasks WHERE profile_id != ?)
+          `).run(keepProfileId);
+
+          tempDb.prepare(`
+            DELETE FROM documents
+            WHERE entity_type = 'subtask'
+              AND entity_id IN (
+                SELECT s.id
+                FROM subtasks s
+                JOIN tasks t ON s.task_id = t.id
+                WHERE t.profile_id != ?
+              )
+          `).run(keepProfileId);
+
+          tempDb.prepare("DELETE FROM subtasks WHERE task_id IN (SELECT id FROM tasks WHERE profile_id != ?)").run(keepProfileId);
+          tempDb.prepare("DELETE FROM task_assignees WHERE task_id IN (SELECT id FROM tasks WHERE profile_id != ?)").run(keepProfileId);
+          tempDb.prepare("DELETE FROM pomodoro WHERE profile_id != ? AND task_id IN (SELECT id FROM tasks WHERE profile_id != ?)").run(keepProfileId, keepProfileId);
+          tempDb.prepare("DELETE FROM tasks WHERE profile_id != ?").run(keepProfileId);
+          tempDb.prepare("DELETE FROM affaires WHERE profile_id != ?").run(keepProfileId);
+          tempDb.prepare("DELETE FROM categories WHERE profile_id != ?").run(keepProfileId);
+          tempDb.prepare("DELETE FROM backup_log").run();
+          tempDb.prepare("DELETE FROM profiles WHERE id != ?").run(keepProfileId);
+        })();
+
+        tempDb.close();
+
+        // Use the profile-scoped file as final exported file
+        const finalPath = path.join(BACKUP_DIR, `${filenameBase}_${safeLabel}.db`);
+        const stats = fs.statSync(finalPath);
+        const fileSizeKb = Math.max(1, Math.round(stats.size / 1024));
+        const taskCount = Number((db.prepare("SELECT COUNT(*) as count FROM tasks WHERE profile_id = ?").get(keepProfileId) as any)?.count || 0);
+
+        const stmt = db.prepare(`
+          INSERT INTO backup_log (filename, path, profile_id, task_count, file_size_kb, is_encrypted)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(path.basename(finalPath), finalPath, backupProfileId, taskCount, fileSizeKb, 0);
+
+        return res.json({ success: true, filename: path.basename(finalPath), size: fileSizeKb, type: 'db' });
+      }
+
+      const stats = fs.statSync(filepath);
+      const fileSizeKb = Math.max(1, Math.round(stats.size / 1024));
+      const taskCount = Number((db.prepare("SELECT COUNT(*) as count FROM tasks").get() as any)?.count || 0);
+
+      const stmt = db.prepare(`
+        INSERT INTO backup_log (filename, path, profile_id, task_count, file_size_kb, is_encrypted)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run(path.basename(filepath), filepath, null, taskCount, fileSizeKb, 0);
+
+      res.json({ success: true, filename: path.basename(filepath), size: fileSizeKb, type: 'db' });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/backups/import-db", (req, res) => {
+    try {
+      const { filename, fileContentBase64, mode, noSuffix } = req.body;
+      const importMode = mode === 'profile' ? 'profile' : 'full';
+
+      if (!filename || !fileContentBase64) {
+        return res.status(400).json({ error: "Missing filename or file content" });
+      }
+
+      const lowerName = String(filename).toLowerCase();
+      if (!lowerName.endsWith('.db') && !lowerName.endsWith('.sqlite') && !lowerName.endsWith('.sqlite3')) {
+        return res.status(400).json({ error: "Unsupported database format" });
+      }
+
+      const buffer = Buffer.from(fileContentBase64, 'base64');
+      if (!buffer || buffer.length < 1024) {
+        return res.status(400).json({ error: "Invalid or empty database file" });
+      }
+
+      const tempName = `import_${Date.now()}_${Math.random().toString(36).slice(2)}.db`;
+      const tempPath = path.join(BACKUP_DIR, tempName);
+      fs.writeFileSync(tempPath, buffer);
+
+      const sourceDb = new Database(tempPath, { readonly: true });
+      const allTables = [
+        'profiles',
+        'categories',
+        'affaires',
+        'tasks',
+        'subtasks',
+        'documents',
+        'task_assignees',
+        'pomodoro',
+        'appointments',
+        'appointment_participants',
+        'backup_log'
+      ];
+      const requiredTables = ['profiles', 'tasks', 'subtasks', 'categories', 'affaires', 'documents'];
+
+      const sourceTableRows = sourceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as any[];
+      const sourceTableNames = new Set(sourceTableRows.map((row) => String(row.name || '')));
+      for (const required of requiredTables) {
+        if (!sourceTableNames.has(required)) {
+          sourceDb.close();
+          fs.unlinkSync(tempPath);
+          return res.status(400).json({ error: `Invalid database: missing table ${required}` });
+        }
+      }
+
+      const sourceData: Record<string, any[]> = {};
+      for (const table of allTables) {
+        if (!sourceTableNames.has(table)) {
+          sourceData[table] = [];
+          continue;
+        }
+        sourceData[table] = sourceDb.prepare(`SELECT * FROM ${table}`).all() as any[];
+      }
+      sourceDb.close();
+
+      const insertRowsIntoTable = (table: string, rows: any[]) => {
+        if (!rows || rows.length === 0) return;
+
+        const destinationColumns = (db.prepare(`PRAGMA table_info(${table})`).all() as any[])
+          .map((c) => String(c.name));
+        const destinationSet = new Set(destinationColumns);
+
+        const sourceColumns = Object.keys(rows[0] || {});
+        const commonColumns = sourceColumns.filter((col) => destinationSet.has(col));
+        if (commonColumns.length === 0) return;
+
+        const placeholders = commonColumns.map(() => '?').join(', ');
+        const stmt = db.prepare(`INSERT INTO ${table} (${commonColumns.join(', ')}) VALUES (${placeholders})`);
+
+        for (const row of rows) {
+          stmt.run(...commonColumns.map((col) => (row[col] === undefined ? null : row[col])));
+        }
+      };
+
+      db.transaction(() => {
+        if (importMode === 'full') {
+          db.prepare("DELETE FROM appointment_participants").run();
+          db.prepare("DELETE FROM appointments").run();
+          db.prepare("DELETE FROM documents").run();
+          db.prepare("DELETE FROM subtasks").run();
+          db.prepare("DELETE FROM task_assignees").run();
+          db.prepare("DELETE FROM pomodoro").run();
+          db.prepare("DELETE FROM tasks").run();
+          db.prepare("DELETE FROM affaires").run();
+          db.prepare("DELETE FROM categories").run();
+          db.prepare("DELETE FROM backup_log").run();
+          db.prepare("DELETE FROM profiles").run();
+
+          insertRowsIntoTable('profiles', sourceData.profiles || []);
+          insertRowsIntoTable('categories', sourceData.categories || []);
+          insertRowsIntoTable('affaires', sourceData.affaires || []);
+          insertRowsIntoTable('tasks', sourceData.tasks || []);
+          insertRowsIntoTable('subtasks', sourceData.subtasks || []);
+          insertRowsIntoTable('documents', sourceData.documents || []);
+          insertRowsIntoTable('task_assignees', sourceData.task_assignees || []);
+          insertRowsIntoTable('pomodoro', sourceData.pomodoro || []);
+          insertRowsIntoTable('appointments', sourceData.appointments || []);
+          insertRowsIntoTable('appointment_participants', sourceData.appointment_participants || []);
+          insertRowsIntoTable('backup_log', sourceData.backup_log || []);
+        } else {
+          const profileMap = new Map<number, number>();
+          for (const p of (sourceData.profiles || [])) {
+            const originalName = String(p?.name || 'Profil importé');
+            const newName = noSuffix ? originalName : `${originalName} (Importé DB)`;
+            const info = db.prepare("INSERT INTO profiles (name, avatar, color_theme, app_background_theme, is_archived, logo, custom_background_image, font_family, text_color, custom_labels, pin_hash, xp, level, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+              newName,
+              p.avatar || '👤',
+              p.color_theme || 'blue',
+              p.app_background_theme || p.color_theme || 'theme-1',
+              p.is_archived ? 1 : 0,
+              p.logo || null,
+              p.custom_background_image || null,
+              p.font_family || 'system',
+              p.text_color || '#000000',
+              p.custom_labels || null,
+              p.pin_hash || null,
+              Number.isFinite(p.xp) ? p.xp : 0,
+              Number.isFinite(p.level) ? p.level : 1,
+              p.created_at || null
+            );
+            profileMap.set(Number(p.id), Number(info.lastInsertRowid));
+          }
+
+          const categoryMap = new Map<number, number>();
+          for (const c of (sourceData.categories || [])) {
+            if (!profileMap.has(Number(c.profile_id))) continue;
+            const info = db.prepare("INSERT INTO categories (profile_id, name, color) VALUES (?, ?, ?)").run(
+              profileMap.get(Number(c.profile_id)), c.name, c.color
+            );
+            categoryMap.set(Number(c.id), Number(info.lastInsertRowid));
+          }
+
+          const affaireMap = new Map<number, number>();
+          for (const a of (sourceData.affaires || [])) {
+            if (!profileMap.has(Number(a.profile_id))) continue;
+            const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+              profileMap.get(Number(a.profile_id)), a.number, a.name, a.color, a.status, a.created_at
+            );
+            affaireMap.set(Number(a.id), Number(info.lastInsertRowid));
+          }
+
+          const taskMap = new Map<number, number>();
+          for (const t of (sourceData.tasks || [])) {
+            if (!profileMap.has(Number(t.profile_id))) continue;
+            const info = db.prepare(`
+              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              profileMap.get(Number(t.profile_id)),
+              t.title,
+              t.description_md,
+              t.start_date || null,
+              t.due_date || null,
+              t.start_time || null,
+              t.end_time || null,
+              t.priority,
+              categoryMap.get(Number(t.category_id)) || null,
+              affaireMap.get(Number(t.affaire_id)) || null,
+              t.is_complete ? 1 : 0,
+              t.is_archived ? 1 : 0,
+              t.is_deleted ? 1 : 0,
+              t.bg_color || null,
+              Number.isFinite(t.time_spent) ? t.time_spent : 0,
+              t.recurrence || null,
+              t.recurrence_type || null,
+              t.recurrence_end_date || null,
+              t.order_index,
+              t.kanban_column,
+              t.created_at,
+              t.updated_at || t.created_at,
+              t.completed_at || null
+            );
+            taskMap.set(Number(t.id), Number(info.lastInsertRowid));
+          }
+
+          const subtaskMap = restoreSubtasksWithParents(sourceData.subtasks || [], taskMap, 'insert');
+
+          for (const ta of (sourceData.task_assignees || [])) {
+            const mappedTaskId = taskMap.get(Number(ta.task_id));
+            if (!mappedTaskId) continue;
+            db.prepare("INSERT INTO task_assignees (task_id, assignee_name, assignee_avatar, created_at) VALUES (?, ?, ?, ?)").run(
+              mappedTaskId,
+              ta.assignee_name,
+              ta.assignee_avatar || '👤',
+              ta.created_at || null
+            );
+          }
+
+          for (const p of (sourceData.pomodoro || [])) {
+            const mappedTaskId = taskMap.get(Number(p.task_id));
+            const mappedProfileId = profileMap.get(Number(p.profile_id));
+            if (!mappedTaskId || !mappedProfileId) continue;
+            db.prepare("INSERT INTO pomodoro (profile_id, task_id, duration_min, completed_at) VALUES (?, ?, ?, ?)").run(
+              mappedProfileId,
+              mappedTaskId,
+              p.duration_min,
+              p.completed_at || null
+            );
+          }
+
+          const appointmentMap = new Map<number, number>();
+          for (const a of (sourceData.appointments || [])) {
+            const mappedProfileId = profileMap.get(Number(a.profile_id));
+            if (!mappedProfileId) continue;
+            const info = db.prepare(`
+              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              mappedProfileId,
+              a.title,
+              a.description,
+              a.location,
+              a.start_time,
+              a.end_time,
+              affaireMap.get(Number(a.affaire_id)) || null,
+              a.video_call_link || null,
+              a.recurrence_type || null,
+              a.recurrence_end_date || null,
+              a.created_at,
+              a.updated_at || a.created_at
+            );
+            appointmentMap.set(Number(a.id), Number(info.lastInsertRowid));
+          }
+
+          for (const ap of (sourceData.appointment_participants || [])) {
+            const mappedAppointmentId = appointmentMap.get(Number(ap.appointment_id));
+            if (!mappedAppointmentId) continue;
+            db.prepare("INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+              mappedAppointmentId,
+              ap.first_name,
+              ap.last_name,
+              ap.company_entity,
+              ap.phone,
+              ap.email,
+              ap.created_at
+            );
+          }
+
+          for (const d of (sourceData.documents || [])) {
+            const entityType = String(d.entity_type || '').toLowerCase();
+            const oldEntityId = Number(d.entity_id);
+            const mappedEntityId = entityType === 'task'
+              ? taskMap.get(oldEntityId)
+              : entityType === 'subtask'
+                ? subtaskMap.get(oldEntityId)
+                : null;
+            if (!mappedEntityId) continue;
+
+            db.prepare(`
+              INSERT INTO documents (entity_type, entity_id, file_name, mime_type, data_url, created_at)
+              VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+            `).run(
+              entityType,
+              mappedEntityId,
+              d.file_name || 'document',
+              d.mime_type || null,
+              d.data_url || '',
+              d.created_at || null
+            );
+          }
+        }
+      })();
+
+      fs.unlinkSync(tempPath);
+
+      res.json({
+        success: true,
+        message: "Base de données restaurée",
+        profileCount: (sourceData.profiles || []).length,
+        taskCount: (sourceData.tasks || []).length,
+        documentCount: (sourceData.documents || []).length
+      });
     } catch (error: any) {
       console.error(error);
       res.status(500).json({ error: error.message });

@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Profile } from '../types';
 import { getAPIUrl } from '../utils/api';
-import { Plus, Trash2, RotateCcw, Edit2, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, RotateCcw, Edit2, Upload, CheckCircle2, AlertCircle, Download, DatabaseBackup, FileJson } from 'lucide-react';
 
 interface Props {
   profiles: Profile[];
@@ -27,6 +27,10 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPassword, setImportPassword] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [isExportingAllJson, setIsExportingAllJson] = useState(false);
+  const [isExportingAllDb, setIsExportingAllDb] = useState(false);
+  const [importTarget, setImportTarget] = useState<'profile' | 'full'>('profile');
+  const [importKind, setImportKind] = useState<'json' | 'db'>('json');
   const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -180,13 +184,100 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
     }
   };
 
+  const showImportToast = (type: 'success' | 'error', text: string, ms = 6000) => {
+    setImportMessage({ type, text });
+    setTimeout(() => setImportMessage(null), ms);
+  };
+
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const commaIndex = result.indexOf(',');
+        if (commaIndex === -1) {
+          reject(new Error('Impossible de lire le fichier'));
+          return;
+        }
+        resolve(result.slice(commaIndex + 1));
+      };
+      reader.onerror = () => reject(reader.error || new Error('Lecture échouée'));
+      reader.readAsDataURL(file);
+    });
+
+  const refreshProfilesList = async () => {
+    const profilesRes = await fetch(getAPIUrl('/profiles'));
+    if (!profilesRes.ok) return;
+    const updated = await profilesRes.json();
+    if (Array.isArray(updated)) {
+      window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updated }));
+    }
+  };
+
+  const handleExportAllJson = async () => {
+    setIsExportingAllJson(true);
+    try {
+      const allComments: Record<string, any[]> = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes('-comments') || key.startsWith('task-') || key.startsWith('subtask-'))) {
+          try {
+            const value = localStorage.getItem(key);
+            if (value) allComments[key] = JSON.parse(value);
+          } catch (_) {}
+        }
+      }
+
+      const res = await fetch(getAPIUrl('/backups/export'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'full', comments: allComments })
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Export JSON global échoué');
+      }
+
+      showImportToast('success', `Export complet JSON créé: ${data.filename}`);
+      window.location.href = `/api/backups/download/${data.filename}`;
+    } catch (error: any) {
+      showImportToast('error', error?.message || 'Erreur export JSON global');
+    } finally {
+      setIsExportingAllJson(false);
+    }
+  };
+
+  const handleExportAllDb = async () => {
+    setIsExportingAllDb(true);
+    try {
+      const res = await fetch(getAPIUrl('/backups/export-db'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'full' })
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Export DB global échoué');
+      }
+
+      showImportToast('success', `Export complet DB créé: ${data.filename}`);
+      window.location.href = `/api/backups/download/${data.filename}`;
+    } catch (error: any) {
+      showImportToast('error', error?.message || 'Erreur export DB global');
+    } finally {
+      setIsExportingAllDb(false);
+    }
+  };
+
   const openImportFile = (file: File) => {
     const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.json') && !lower.endsWith('.jsonbak')) {
-      setImportMessage({ type: 'error', text: 'Format non supporté. Utilisez un fichier .json ou .jsonbak' });
-      setTimeout(() => setImportMessage(null), 5000);
+    const isJson = lower.endsWith('.json') || lower.endsWith('.jsonbak');
+    const isDb = lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('.sqlite3');
+    if (!isJson && !isDb) {
+      showImportToast('error', 'Format non supporté. Utilisez .json/.jsonbak/.db/.sqlite/.sqlite3', 5000);
       return;
     }
+    setImportKind(isDb ? 'db' : 'json');
     setImportFile(file);
     setImportPassword('');
     setShowImportModal(true);
@@ -218,53 +309,72 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
 
   const handleConfirmImport = async () => {
     if (!importFile) return;
-    if (importFile.name.toLowerCase().endsWith('.jsonbak') && !importPassword) {
-      setImportMessage({ type: 'error', text: 'Mot de passe requis pour ce fichier chiffré.' });
-      setTimeout(() => setImportMessage(null), 5000);
+
+    const lower = importFile.name.toLowerCase();
+    const isDb = lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('.sqlite3');
+    const isJsonBak = lower.endsWith('.jsonbak');
+
+    if (!isDb && isJsonBak && !importPassword) {
+      showImportToast('error', 'Mot de passe requis pour ce fichier chiffré.', 5000);
       return;
     }
+
+    if (importTarget === 'full' && !window.confirm('⚠️ Import complet: toutes les données actuelles de l\'application seront remplacées. Continuer ?')) {
+      return;
+    }
+
     setIsImporting(true);
     try {
-      const fileContent = await importFile.text();
-      const res = await fetch(getAPIUrl('/backups/import'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileContent,
-          filename: importFile.name,
-          mode: 'profile',
-          noSuffix: true,
-          password: importPassword || null
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        // Restore comments from backup
+      let data: any = null;
+      let response: Response;
+
+      if (isDb) {
+        const base64 = await readFileAsBase64(importFile);
+        response = await fetch(getAPIUrl('/backups/import-db'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: importFile.name,
+            fileContentBase64: base64,
+            mode: importTarget,
+            noSuffix: importTarget === 'profile'
+          })
+        });
+      } else {
+        const fileContent = await importFile.text();
+        response = await fetch(getAPIUrl('/backups/import'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileContent,
+            filename: importFile.name,
+            mode: importTarget,
+            noSuffix: importTarget === 'profile',
+            password: importPassword || null
+          })
+        });
+      }
+
+      data = await response.json();
+      if (response.ok && data?.success) {
         if (data.comments && typeof data.comments === 'object') {
           for (const [key, value] of Object.entries(data.comments)) {
             try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
           }
         }
-        // Refresh profiles list
-        const profilesRes = await fetch(getAPIUrl('/profiles'));
-        if (profilesRes.ok) {
-          const updated = await profilesRes.json();
-          if (Array.isArray(updated)) {
-            window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updated }));
-          }
-        }
-        setImportMessage({ type: 'success', text: `Importation réussie — ${data.taskCount} tâches importées. Le profil a été créé.` });
+
+        await refreshProfilesList();
+
+        const importScopeLabel = importTarget === 'full' ? 'application complète' : 'profil(s)';
+        showImportToast('success', `Importation ${importKind.toUpperCase()} réussie (${importScopeLabel}).`);
         setShowImportModal(false);
         setImportFile(null);
         setImportPassword('');
-        setTimeout(() => setImportMessage(null), 6000);
       } else {
-        setImportMessage({ type: 'error', text: data.error || 'Erreur lors de l\'importation.' });
-        setTimeout(() => setImportMessage(null), 6000);
+        showImportToast('error', data?.error || 'Erreur lors de l\'importation.');
       }
     } catch (err: any) {
-      setImportMessage({ type: 'error', text: err?.message || 'Erreur réseau.' });
-      setTimeout(() => setImportMessage(null), 6000);
+      showImportToast('error', err?.message || 'Erreur réseau.');
     } finally {
       setIsImporting(false);
     }
@@ -477,12 +587,33 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
           )}
         </div>
 
+        {/* Full extraction buttons */}
+        <div className="mt-6 mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button
+            onClick={handleExportAllJson}
+            disabled={isExportingAllJson}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            {isExportingAllJson ? <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> : <FileJson className="w-4 h-4" />}
+            {isExportingAllJson ? 'Extraction JSON...' : 'Extraction Complète JSON'}
+          </button>
+
+          <button
+            onClick={handleExportAllDb}
+            disabled={isExportingAllDb}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white font-medium rounded-xl hover:bg-amber-700 transition-colors disabled:opacity-50"
+          >
+            {isExportingAllDb ? <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> : <DatabaseBackup className="w-4 h-4" />}
+            {isExportingAllDb ? 'Extraction DB...' : 'Extraction Complète DB'}
+          </button>
+        </div>
+
         {/* Import backup drop zone */}
-        <div className="mt-6 mb-4">
+        <div className="mt-3 mb-4">
           <input
             ref={importFileRef}
             type="file"
-            accept=".json,.jsonbak"
+            accept=".json,.jsonbak,.db,.sqlite,.sqlite3"
             onChange={handleImportFileChange}
             className="hidden"
           />
@@ -502,9 +633,9 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
             </div>
             <div className="text-center">
               <p className={`font-medium text-sm ${ isDragOver ? 'text-indigo-300' : 'text-zinc-300' }`}>
-                {isDragOver ? 'Déposez le fichier ici' : 'Restaurer depuis une sauvegarde'}
+                {isDragOver ? 'Déposez le fichier ici' : 'Importer des données (Profil ou Complet)'}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">Glissez-déposez un fichier .json ou cliquez pour choisir</p>
+              <p className="text-xs text-zinc-500 mt-1">Glissez-déposez .json/.jsonbak/.db ou cliquez pour choisir</p>
             </div>
           </div>
         </div>
@@ -575,12 +706,36 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
                 exit={{ scale: 0.95, opacity: 0 }}
                 className="bg-zinc-800 rounded-xl p-6 max-w-sm w-full shadow-xl border border-zinc-700"
               >
-                <h3 className="text-lg font-semibold text-white mb-1">Restaurer une sauvegarde</h3>
+                <h3 className="text-lg font-semibold text-white mb-1">Importer des données</h3>
                 <p className="text-zinc-400 text-sm mb-4">
-                  Les données de <strong className="text-zinc-300">{importFile.name}</strong> seront restaurées. Les profils existants ne seront pas effacés.
+                  Fichier sélectionné : <strong className="text-zinc-300">{importFile.name}</strong>
                 </p>
 
-                {importFile.name.toLowerCase().endsWith('.jsonbak') && (
+                <div className="mb-4 space-y-2">
+                  <label className="block text-sm font-medium text-zinc-300">Cible d'import</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImportTarget('profile')}
+                      className={`px-3 py-2 rounded-lg text-sm border transition-colors ${importTarget === 'profile' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-zinc-900 text-zinc-300 border-zinc-600 hover:border-zinc-500'}`}
+                    >
+                      Profil uniquement
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImportTarget('full')}
+                      className={`px-3 py-2 rounded-lg text-sm border transition-colors ${importTarget === 'full' ? 'bg-amber-600 text-white border-amber-500' : 'bg-zinc-900 text-zinc-300 border-zinc-600 hover:border-zinc-500'}`}
+                    >
+                      Application complète
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-xs text-zinc-400 mb-4">
+                  Type détecté : <strong>{importKind.toUpperCase()}</strong>
+                </p>
+
+                {importKind === 'json' && importFile.name.toLowerCase().endsWith('.jsonbak') && (
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-zinc-300 mb-1">Mot de passe de déchiffrement</label>
                     <input
@@ -610,7 +765,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
                   </button>
                   <button
                     onClick={handleConfirmImport}
-                    disabled={isImporting}
+                    disabled={isImporting || (importKind === 'json' && importFile.name.toLowerCase().endsWith('.jsonbak') && !importPassword)}
                     className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-60 flex items-center justify-center gap-2"
                   >
                     {isImporting ? (

@@ -2001,7 +2001,6 @@ export default function App() {
           localStorage.setItem('activeProfileId', String(profile.id));
         }} 
         onCreateProfile={(p) => {
-          setProfiles((current) => [...current, p]);
           setActiveProfile(p);
           localStorage.setItem('activeProfileId', String(p.id));
         }}
