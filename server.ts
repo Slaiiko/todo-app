@@ -9,16 +9,33 @@ import { fileURLToPath } from "url";
 
 const PORT = Number(process.env.PORT || 3000);
 const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
-const DATA_ROOT = process.env.RENDER_DISK_MOUNT_PATH || process.env.DATA_DIR || (process.env.NODE_ENV === 'production' ? '/var/data' : PROJECT_ROOT);
+const resolveWritableDataRoot = (): string => {
+  const candidates = [
+    process.env.RENDER_DISK_MOUNT_PATH,
+    process.env.DATA_DIR,
+    process.env.NODE_ENV === 'production' ? '/var/data' : undefined,
+    PROJECT_ROOT,
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    try {
+      fs.mkdirSync(candidate, { recursive: true });
+      fs.accessSync(candidate, fs.constants.R_OK | fs.constants.W_OK);
+      return candidate;
+    } catch (error) {
+      console.warn(`Data directory unavailable: ${candidate}`);
+    }
+  }
+
+  return PROJECT_ROOT;
+};
+
+const DATA_ROOT = resolveWritableDataRoot();
 const DB_PATH = path.join(DATA_ROOT, "todo_app.db");
 const BACKUP_DIR = path.join(DATA_ROOT, "backups");
 
 console.log("Using data root:", DATA_ROOT);
 console.log("Using database:", DB_PATH);
-
-if (!fs.existsSync(DATA_ROOT)) {
-  fs.mkdirSync(DATA_ROOT, { recursive: true });
-}
 
 if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
