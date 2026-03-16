@@ -758,18 +758,18 @@ export default function SettingsView({
         animate={{ opacity: 1, y: 0 }}
         className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-700 rounded-lg shadow-lg p-6 relative z-10"
       >
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">Profil & Statistiques</h2>
+        <h2 className="text-2xl font-bold text-gray-100 mb-4">Profil & Statistiques</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border border-blue-200 dark:border-blue-900">
-            <p className="text-sm font-medium text-blue-900 dark:text-blue-300">Profil Actif</p>
+            <p className="text-sm font-medium text-gray-300">Profil Actif</p>
             <p className="text-lg font-semibold text-blue-600 mt-2">{profile?.name}</p>
           </div>
           <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-900">
-            <p className="text-sm font-medium text-purple-900 dark:text-purple-300">Complétées Aujourd'hui</p>
+            <p className="text-sm font-medium text-gray-300">Complétées Aujourd'hui</p>
             <p className="text-lg font-semibold text-purple-600 mt-2">{stats.completedToday}</p>
           </div>
           <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border border-amber-200 dark:border-amber-900">
-            <p className="text-sm font-medium text-amber-900 dark:text-amber-300">Pomodoros Aujourd'hui</p>
+            <p className="text-sm font-medium text-gray-300">Pomodoros Aujourd'hui</p>
             <p className="text-lg font-semibold text-amber-600 mt-2">{stats.pomodorosToday}</p>
           </div>
         </div>
@@ -782,10 +782,10 @@ export default function SettingsView({
         transition={{ delay: 0.05 }}
         className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-gray-800 dark:to-gray-700 rounded-lg shadow-lg p-6 relative z-10"
       >
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2 flex items-center gap-2">
+        <h2 className="text-2xl font-bold text-gray-100 mb-2 flex items-center gap-2">
           ✏️ Labels Personnalisés
         </h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
+        <p className="text-gray-300 mb-6">
           Modifiez les noms des éléments du menu (survol et cliquez sur l'icône edit pour personnaliser)
         </p>
 
@@ -799,7 +799,7 @@ export default function SettingsView({
                     value={editingLabelValue}
                     onChange={(e) => setEditingLabelValue(e.target.value)}
                     placeholder={defaultValue}
-                    className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder:text-gray-400 rounded border border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-100 placeholder:text-gray-400 rounded border border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     autoFocus
                     onKeyPress={(e) => {
                       if (e.key === 'Enter') {
@@ -828,7 +828,7 @@ export default function SettingsView({
                 </div>
               ) : (
                 <div className="p-3 bg-white dark:bg-gray-900 border border-emerald-200 dark:border-emerald-800 rounded-lg hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors cursor-pointer min-h-[80px] flex flex-col items-center justify-center">
-                  <p className="text-sm font-medium text-gray-800 dark:text-white text-center truncate w-full">
+                  <p className="text-sm font-medium text-gray-100 text-center truncate w-full">
                     {getDisplayLabel(key)}
                   </p>
                   <p className="text-xs text-gray-400 mt-2">({key})</p>
@@ -857,10 +857,10 @@ export default function SettingsView({
         transition={{ delay: 0.1 }}
         className="bg-white/10 dark:bg-gray-800/10 backdrop-blur-sm rounded-lg shadow-lg p-6 relative z-0"
       >
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2 flex items-center gap-2">
+        <h2 className="text-2xl font-bold text-gray-100 mb-2 flex items-center gap-2">
           🎨 Thème de l'Application
         </h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
+        <p className="text-gray-300 mb-6">
           Choisissez parmi 10 thèmes élégants pour personnaliser votre expérience
         </p>
 
@@ -917,21 +917,21 @@ export default function SettingsView({
             animate={{ opacity: 1, y: 0 }}
             className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
           >
-            <label className="block text-sm font-medium text-blue-900 dark:text-blue-200 mb-3">
+            <label className="block text-sm font-medium text-gray-200 mb-3">
               📸 Téléchargez votre image
             </label>
             <input
               type="file"
               accept="image/*"
               onChange={handleImageUpload}
-              className="block w-full text-sm text-slate-500
+              className="block w-full text-sm text-gray-300
                 file:mr-4 file:py-2 file:px-4
                 file:rounded-lg file:border-0
                 file:text-sm file:font-semibold
                 file:bg-blue-600 file:text-white
                 hover:file:bg-blue-700"
             />
-            <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+            <p className="text-xs text-gray-300 mt-2">
               Tous les formats acceptés • Compression automatique • Max dimensions: 1920x1080
             </p>
           </motion.div>
@@ -974,23 +974,23 @@ export default function SettingsView({
         transition={{ delay: 0.15 }}
         className="bg-white/10 dark:bg-gray-800/10 backdrop-blur-sm rounded-lg shadow-lg p-6 relative z-0"
       >
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2 flex items-center gap-2">
+        <h2 className="text-2xl font-bold text-gray-100 mb-2 flex items-center gap-2">
           🔤 Police d'Écriture
         </h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
+        <p className="text-gray-300 mb-6">
           Sélectionnez votre police d'écriture préférée parmi +60 options disponibles
         </p>
 
         <div className="space-y-4">
           {/* Font Dropdown */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            <label className="block text-sm font-medium text-gray-200 mb-3">
               Polices disponibles:
             </label>
             <select
               value={selectedFont}
               onChange={(e) => setSelectedFont(e.target.value)}
-              className="w-full px-4 py-3 bg-white dark:bg-gray-900 border-2 border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-colors"
+              className="w-full px-4 py-3 bg-white dark:bg-gray-900 border-2 border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-100 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-colors"
             >
               {AVAILABLE_FONTS.map((font) => (
                 <option key={font.id} value={font.id}>
@@ -1005,7 +1005,7 @@ export default function SettingsView({
             <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Aperçu:</p>
             <p 
               ref={previewRef}
-              className="text-lg text-gray-800 dark:text-white"
+              className="text-lg text-gray-100"
             >
               Abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789 !@#$%^&*()
             </p>
@@ -1049,17 +1049,17 @@ export default function SettingsView({
         transition={{ delay: 0.15 }}
         className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 relative z-10"
       >
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2 flex items-center gap-2">
+        <h2 className="text-2xl font-bold text-gray-100 mb-2 flex items-center gap-2">
           🎨 Couleur de la Police
         </h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
+        <p className="text-gray-300 mb-6">
           Sélectionnez la couleur de votre texte dans le spectre complet
         </p>
 
         <div className="space-y-4">
           {/* Color Picker */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            <label className="block text-sm font-medium text-gray-200 mb-3">
               Couleur du texte:
             </label>
             <div className="flex items-center gap-4">
@@ -1070,7 +1070,7 @@ export default function SettingsView({
                 className="h-16 w-24 rounded-lg cursor-pointer border-2 border-gray-200 dark:border-gray-700"
               />
               <div className="flex-1">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Valeur hex:</p>
+                <p className="text-sm text-gray-300 mb-1">Valeur hex:</p>
                 <input
                   type="text"
                   value={selectedTextColor}
@@ -1081,7 +1081,7 @@ export default function SettingsView({
                     }
                   }}
                   placeholder="#000000"
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-colors"
+                  className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-100 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-colors"
                 />
               </div>
             </div>
@@ -1145,12 +1145,12 @@ export default function SettingsView({
         transition={{ delay: 0.2 }}
         className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 relative z-10"
       >
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-6">Catégories</h2>
+        <h2 className="text-2xl font-bold text-gray-100 mb-6">Catégories</h2>
 
         {/* Existing Categories */}
         {categories.length > 0 && (
           <div className="mb-8">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Catégories Existantes</p>
+            <p className="text-sm font-medium text-gray-300 mb-4">Catégories Existantes</p>
             <div className="space-y-2 grid grid-cols-1 md:grid-cols-2 gap-3">
               {categories.map((cat) => (
                 <motion.div
@@ -1167,7 +1167,7 @@ export default function SettingsView({
                       className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0" 
                       style={{ backgroundColor: cat.color }}
                     />
-                    <span className="text-gray-700 dark:text-gray-200 font-medium">{cat.name}</span>
+                    <span className="text-gray-200 font-medium">{cat.name}</span>
                   </div>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
@@ -1186,22 +1186,22 @@ export default function SettingsView({
 
         {/* Add New Category Form */}
         <div className="p-6 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-          <p className="text-sm font-medium text-purple-900 dark:text-purple-200 mb-4">Ajouter une Catégorie</p>
+          <p className="text-sm font-medium text-gray-200 mb-4">Ajouter une Catégorie</p>
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium text-purple-900 dark:text-purple-200 mb-2">Nom</label>
+              <label className="block text-xs font-medium text-gray-300 mb-2">Nom</label>
               <input
                 type="text"
                 value={newCategoryName}
                 onChange={(e) => setNewCategoryName(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleAddCategory()}
                 placeholder="Ex: Travail, Personnel..."
-                className="w-full px-4 py-2 border border-purple-300 dark:border-purple-700 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+                className="w-full px-4 py-2 border border-purple-300 dark:border-purple-700 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
               />
             </div>
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-xs font-medium text-purple-900 dark:text-purple-200 mb-2">Couleur</label>
+                <label className="block text-xs font-medium text-gray-300 mb-2">Couleur</label>
                 <input
                   type="color"
                   value={newCategoryColor}

@@ -5,6 +5,7 @@ import { format, isPast, parseISO, differenceInDays } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Clock, CheckCircle2, Circle, Briefcase, AlertCircle, Plus, ChevronDown, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import TaskImageThumb from './TaskImageThumb';
 
 interface Props {
   tasks: Task[];
@@ -273,9 +274,17 @@ export default function KanbanView({ tasks, onTaskMove, onEdit }: Props) {
                                       </span>
                                     )}
                                   </div>
-                                  {isPast(parseISO(task.due_date || new Date().toISOString())) && !task.is_complete && (
-                                    <AlertCircle className="w-4 h-4 text-red-500" />
-                                  )}
+                                  <div className="flex items-start gap-2">
+                                    <TaskImageThumb
+                                      taskId={task.id}
+                                      imageData={task.image_data}
+                                      alt={task.title || 'Photo de la tâche'}
+                                      className="w-10 h-10 rounded-lg object-cover border border-zinc-200 shadow-sm"
+                                    />
+                                    {isPast(parseISO(task.due_date || new Date().toISOString())) && !task.is_complete && (
+                                      <AlertCircle className="w-4 h-4 text-red-500" />
+                                    )}
+                                  </div>
                                 </div>
                                 
                                 {/* Task title */}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Trash2, Calendar, Clock, MapPin, Phone, Mail, Users } from 'lucide-react';
 import { Appointment, AppointmentParticipant, Affaire } from '../types';
+import TimePicker from './TimePicker';
 
 interface Props {
   isOpen: boolean;
@@ -104,7 +105,8 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
       handleClose();
     } catch (error) {
       console.error('Failed to save appointment:', error);
-      alert('Erreur lors de la sauvegarde du rendez-vous');
+      const message = error instanceof Error ? error.message : 'Erreur inconnue';
+      alert(`Erreur lors de la sauvegarde du rendez-vous: ${message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -156,7 +158,7 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-8 space-y-6">
+            <form onSubmit={handleSubmit} autoComplete="off" className="p-8 space-y-6">
               {/* Titre et affaire */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -209,24 +211,14 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
                     <Clock className="w-4 h-4" />
                     Heure de début *
                   </label>
-                  <input
-                    type="time"
-                    value={startHour}
-                    onChange={(e) => setStartHour(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <TimePicker value={startHour} onChange={setStartHour} label="Début" />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                     <Clock className="w-4 h-4" />
                     Heure de fin *
                   </label>
-                  <input
-                    type="time"
-                    value={endHour}
-                    onChange={(e) => setEndHour(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <TimePicker value={endHour} onChange={setEndHour} label="Fin" />
                 </div>
               </div>
 
@@ -240,6 +232,8 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
                   type="text"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
+                  name="appointment-location"
+                  autoComplete="off"
                   placeholder="Ex: Salle de conférence A - Building C"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />

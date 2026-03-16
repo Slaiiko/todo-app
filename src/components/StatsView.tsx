@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { format, subDays, isSameDay, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Target, Flame, CheckCircle2, Clock, CalendarDays, ListTodo } from 'lucide-react';
+import TaskImageThumb from './TaskImageThumb';
 
 interface Props {
   stats: { completedToday: number; pomodorosToday: number };
@@ -143,6 +144,12 @@ export default function StatsView({
                         )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        <TaskImageThumb
+                          taskId={task.id}
+                          imageData={task.image_data}
+                          alt={task.title || 'Photo de la tâche'}
+                          className="w-12 h-12 rounded-lg object-cover border border-zinc-200 shadow-sm"
+                        />
                         <button
                           onClick={() => onTaskValidate(task)}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"

@@ -5,6 +5,7 @@ import { CheckCircle2, Circle, Trash2, MessageCircle, Send, X, ChevronDown, Penc
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { getAPIUrl } from '../utils/api';
+import EntityDocuments from './EntityDocuments';
 
 interface Props {
   subtasks: Subtask[];
@@ -212,6 +213,48 @@ export default function SubtaskList({
     }
   };
 
+  const handleResetSubtaskFocusTime = async (event: React.MouseEvent, subtaskId: number, subtask: Subtask) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      const nextValidation = Number((subtask as any).validation_time_spent || 0) || 0;
+      const response = await fetch(getAPIUrl(`/subtasks/${subtaskId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          focus_time_spent: 0,
+          time_spent: nextValidation
+        })
+      });
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('taskMoved'));
+      }
+    } catch (error) {
+      console.error('Failed to reset subtask focus time:', error);
+    }
+  };
+
+  const handleResetSubtaskValidationTime = async (event: React.MouseEvent, subtaskId: number, subtask: Subtask) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      const nextFocus = Number((subtask as any).focus_time_spent || 0) || 0;
+      const response = await fetch(getAPIUrl(`/subtasks/${subtaskId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          validation_time_spent: 0,
+          time_spent: nextFocus
+        })
+      });
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('taskMoved'));
+      }
+    } catch (error) {
+      console.error('Failed to reset subtask validation time:', error);
+    }
+  };
+
   // Show nothing if no subtasks AND no form to add one
   if (displayedSubtasks.length === 0 && !showAddForm) {
     return null;
@@ -354,18 +397,57 @@ export default function SubtaskList({
                         {subtask.title}
                       </p>
                     </div>
-                    {subtask.time_spent ? (() => {
-                      const timeSpent = typeof subtask.time_spent === 'string' ? parseInt(subtask.time_spent, 10) : subtask.time_spent;
-                      if (!isNaN(timeSpent) && timeSpent > 0) {
-                        return (
-                          <div className="flex items-center gap-1 text-xs font-medium text-purple-600">
-                            <Clock className="w-3 h-3" />
-                            {Math.floor(timeSpent / 60)}h {timeSpent % 60}min
-                          </div>
-                        );
+                    {(() => {
+                      const focusTime = Number((subtask as any).focus_time_spent || 0) || 0;
+                      const validationTime = Number((subtask as any).validation_time_spent || 0) || 0;
+                      const totalTime = Number(subtask.time_spent || 0) || 0;
+                      const knownTime = focusTime + validationTime;
+                      const legacyTime = totalTime > knownTime ? totalTime - knownTime : 0;
+
+                      if (focusTime <= 0 && validationTime <= 0 && legacyTime <= 0) {
+                        return null;
                       }
-                      return null;
-                    })() : null}
+
+                      return (
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          {focusTime > 0 && (
+                            <div className="flex items-center gap-1 text-xs font-medium text-purple-600">
+                              <Clock className="w-3 h-3" />
+                              Focus · {Math.floor(focusTime / 60)}h {focusTime % 60}min
+                              <button
+                                type="button"
+                                onClick={(event) => handleResetSubtaskFocusTime(event, subtask.id, subtask)}
+                                className="ml-1 text-purple-500 hover:text-red-600 transition-colors"
+                                title="Remettre le temps Focus à 0"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                          {validationTime > 0 && (
+                            <div className="flex items-center gap-1 text-xs font-medium text-indigo-700">
+                              <Clock className="w-3 h-3" />
+                              Validation · {Math.floor(validationTime / 60)}h {validationTime % 60}min
+                              <button
+                                type="button"
+                                onClick={(event) => handleResetSubtaskValidationTime(event, subtask.id, subtask)}
+                                className="ml-1 text-indigo-500 hover:text-red-600 transition-colors"
+                                title="Remettre le temps Validation à 0"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                          {legacyTime > 0 && (
+                            <div className="flex items-center gap-1 text-xs font-medium text-zinc-700">
+                              <Clock className="w-3 h-3" />
+                              Temps · {Math.floor(legacyTime / 60)}h {legacyTime % 60}min
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <EntityDocuments entityType="subtask" entityId={subtask.id} compact />
                   </div>
                 )}
                 {subtask.assignee_name && (
@@ -376,6 +458,11 @@ export default function SubtaskList({
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0 pointer-events-auto">
+                <div 
+                  className={`flex items-center gap-1.5 transition-opacity ${
+                    hoveredId === subtask.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                  }`}
+                >
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
@@ -396,11 +483,6 @@ export default function SubtaskList({
                   <Plus className="w-4 h-4" />
                 </motion.button>
 
-                <div 
-                  className={`flex items-center gap-1.5 transition-opacity ${
-                    hoveredId === subtask.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                  }`}
-                >
                 <div className="flex items-center gap-1">
                   <motion.button
                     whileHover={{ scale: 1.1 }}

@@ -30,24 +30,6 @@ try {
 }
 
 try {
-  db.exec(`ALTER TABLE tasks ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
-} catch (e) {
-  // Column might already exist
-}
-
-try {
-  db.exec(`ALTER TABLE tasks ADD COLUMN time_spent INTEGER DEFAULT 0`);
-} catch (e) {
-  // Column might already exist
-}
-
-try {
-  db.exec(`ALTER TABLE tasks ADD COLUMN completed_at DATETIME`);
-} catch (e) {
-  // Column might already exist
-}
-
-try {
   db.exec(`ALTER TABLE subtasks ADD COLUMN time_spent INTEGER DEFAULT 0`);
 } catch (e) {
   // Column might already exist
@@ -66,7 +48,31 @@ try {
 }
 
 try {
+  db.exec(`ALTER TABLE subtasks ADD COLUMN focus_time_spent INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column might already exist
+}
+
+try {
+  db.exec(`ALTER TABLE subtasks ADD COLUMN validation_time_spent INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column might already exist
+}
+
+try {
   db.exec(`ALTER TABLE tasks ADD COLUMN bg_color TEXT DEFAULT NULL`);
+} catch (e) {
+  // Column might already exist
+}
+
+try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN image_data TEXT DEFAULT NULL`);
+} catch (e) {
+  // Column might already exist
+}
+
+try {
+  db.exec(`ALTER TABLE affaires ADD COLUMN image_data TEXT DEFAULT NULL`);
 } catch (e) {
   // Column might already exist
 }
@@ -183,6 +189,7 @@ db.exec(`
     name TEXT NOT NULL,
     color TEXT DEFAULT '#808080',
     status TEXT DEFAULT 'Active',
+    image_data TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
   );
@@ -204,6 +211,9 @@ db.exec(`
     is_deleted BOOLEAN DEFAULT 0,
     bg_color TEXT DEFAULT NULL,
     time_spent INTEGER DEFAULT 0,
+    subtasks_time_spent INTEGER DEFAULT 0,
+    focus_time_spent INTEGER DEFAULT 0,
+    validation_time_spent INTEGER DEFAULT 0,
     recurrence TEXT,
     recurrence_type TEXT,
     recurrence_end_date DATETIME,
@@ -224,6 +234,8 @@ db.exec(`
     title TEXT NOT NULL,
     is_complete BOOLEAN DEFAULT 0,
     time_spent INTEGER DEFAULT 0,
+    focus_time_spent INTEGER DEFAULT 0,
+    validation_time_spent INTEGER DEFAULT 0,
     completed_at DATETIME,
     FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
     FOREIGN KEY(parent_subtask_id) REFERENCES subtasks(id) ON DELETE CASCADE
@@ -290,9 +302,96 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(appointment_id) REFERENCES appointments(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    file_name TEXT NOT NULL,
+    mime_type TEXT,
+    data_url TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
-const restoreSubtasksWithParents = (subtasks: any[], taskMap: Map<number, number>, mode: 'insert' | 'merge' = 'insert') => {
+// Backfill legacy time into validation bucket when new columns are still empty
+try {
+  db.exec(`
+    UPDATE tasks
+    SET validation_time_spent = COALESCE(time_spent, 0)
+    WHERE COALESCE(validation_time_spent, 0) = 0 AND COALESCE(focus_time_spent, 0) = 0 AND COALESCE(time_spent, 0) > 0
+  `);
+} catch (e) {
+  // Ignore backfill failures
+}
+
+try {
+  db.exec(`
+    UPDATE subtasks
+    SET validation_time_spent = COALESCE(time_spent, 0)
+    WHERE COALESCE(validation_time_spent, 0) = 0 AND COALESCE(focus_time_spent, 0) = 0 AND COALESCE(time_spent, 0) > 0
+  `);
+} catch (e) {
+  // Ignore backfill failures
+}
+
+// Backfill legacy focus time for in-progress items created with older clients
+try {
+  db.exec(`
+    UPDATE tasks
+    SET focus_time_spent = COALESCE(time_spent, 0)
+    WHERE COALESCE(is_complete, 0) = 0
+      AND COALESCE(focus_time_spent, 0) = 0
+      AND COALESCE(validation_time_spent, 0) = 0
+      AND COALESCE(time_spent, 0) > 0
+  `);
+} catch (e) {
+  // Ignore backfill failures
+}
+
+try {
+  db.exec(`
+    UPDATE subtasks
+    SET focus_time_spent = COALESCE(time_spent, 0)
+    WHERE COALESCE(is_complete, 0) = 0
+      AND COALESCE(focus_time_spent, 0) = 0
+      AND COALESCE(validation_time_spent, 0) = 0
+      AND COALESCE(time_spent, 0) > 0
+  `);
+} catch (e) {
+  // Ignore backfill failures
+}
+
+// Reclassify legacy mis-labeled validation time as focus for in-progress items
+try {
+  db.exec(`
+    UPDATE tasks
+    SET focus_time_spent = COALESCE(validation_time_spent, 0),
+        validation_time_spent = 0
+    WHERE COALESCE(is_complete, 0) = 0
+      AND COALESCE(focus_time_spent, 0) = 0
+      AND COALESCE(validation_time_spent, 0) > 0
+      AND COALESCE(time_spent, 0) = COALESCE(validation_time_spent, 0)
+  `);
+} catch (e) {
+  // Ignore backfill failures
+}
+
+try {
+  db.exec(`
+    UPDATE subtasks
+    SET focus_time_spent = COALESCE(validation_time_spent, 0),
+        validation_time_spent = 0
+    WHERE COALESCE(is_complete, 0) = 0
+      AND COALESCE(focus_time_spent, 0) = 0
+      AND COALESCE(validation_time_spent, 0) > 0
+      AND COALESCE(time_spent, 0) = COALESCE(validation_time_spent, 0)
+  `);
+} catch (e) {
+  // Ignore backfill failures
+}
+
+const restoreSubtasksWithParents = (subtasks: any[], taskMap: Map<number, number>, mode: 'insert' | 'merge' = 'insert'): Map<number, number> => {
   const subtaskMap = new Map<number, number>();
   const pending = [...(subtasks || [])];
 
@@ -379,18 +478,11 @@ const restoreSubtasksWithParents = (subtasks: any[], taskMap: Map<number, number
       }
     }
   }
+  return subtaskMap;
 };
 
-// Seed default profile if none exists
-const profileCount = db.prepare("SELECT COUNT(*) as count FROM profiles").get() as { count: number };
-if (profileCount.count === 0) {
-  const insertProfile = db.prepare("INSERT INTO profiles (name, avatar, color_theme, app_background_theme) VALUES (?, ?, ?, ?)");
-  const res = insertProfile.run("Default Profile", "👤", "blue", "theme-1");
-  
-  const insertCategory = db.prepare("INSERT INTO categories (profile_id, name, color) VALUES (?, ?, ?)");
-  insertCategory.run(res.lastInsertRowid, "Work", "#ef4444");
-  insertCategory.run(res.lastInsertRowid, "Personal", "#3b82f6");
-}
+// Intentionally no automatic seed data.
+// A fresh database should stay empty so users can start from a blank state.
 
 async function startServer() {
   const app = express();
@@ -412,7 +504,6 @@ async function startServer() {
 
   // --- API ROUTES ---
 
-  // Profiles
   app.get("/api/profiles", (req, res) => {
     const profiles = db.prepare("SELECT * FROM profiles").all();
     res.json(profiles);
@@ -543,15 +634,25 @@ async function startServer() {
   });
 
   app.post("/api/affaires", (req, res) => {
-    const { profile_id, number, name, color, status } = req.body;
-    const stmt = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status) VALUES (?, ?, ?, ?, ?)");
-    const info = stmt.run(profile_id, number, name, color || '#808080', status || 'Active');
-    res.json({ id: info.lastInsertRowid, profile_id, number, name, color, status });
+    const { profile_id, number, name, color, status, image_data } = req.body;
+    const stmt = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, image_data) VALUES (?, ?, ?, ?, ?, ?)");
+    const info = stmt.run(profile_id, number, name, color || '#808080', status || 'Active', image_data || null);
+    res.json({ id: info.lastInsertRowid, profile_id, number, name, color, status, image_data: image_data || null });
   });
 
   app.put("/api/affaires/:id", (req, res) => {
-    const { number, name, color, status } = req.body;
-    db.prepare("UPDATE affaires SET number = ?, name = ?, color = ?, status = ? WHERE id = ?").run(number, name, color, status, req.params.id);
+    const { number, name, color, status, image_data } = req.body;
+    const current = db.prepare("SELECT * FROM affaires WHERE id = ?").get(req.params.id) as any;
+    if (!current) return res.status(404).json({ error: 'Affaire not found' });
+    const updatedImageData = image_data !== undefined ? image_data : current.image_data;
+    db.prepare("UPDATE affaires SET number = ?, name = ?, color = ?, status = ?, image_data = ? WHERE id = ?").run(
+      number ?? current.number,
+      name ?? current.name,
+      color ?? current.color,
+      status ?? current.status,
+      updatedImageData,
+      req.params.id
+    );
     res.json({ success: true });
   });
 
@@ -621,7 +722,7 @@ async function startServer() {
 
   app.post("/api/tasks", (req, res) => {
     try {
-      const { profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date } = req.body;
+      const { profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date, image_data } = req.body;
 
       // Validate required fields
       if (!title || String(title).trim() === '') {
@@ -638,8 +739,8 @@ async function startServer() {
       }
 
       const stmt = db.prepare(`
-        INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, affaire_id, recurrence_type, recurrence_end_date, image_data) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const info = stmt.run(
         profile_id,
@@ -654,7 +755,8 @@ async function startServer() {
         kanban_column || 'To Do',
         affaire_id || null,
         recurrence_type || null,
-        recurrence_end_date || null
+        recurrence_end_date || null,
+        image_data || null
       );
 
       const newTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(info.lastInsertRowid);
@@ -668,7 +770,7 @@ async function startServer() {
   app.put("/api/tasks/:id", (req, res) => {
     try {
       const taskId = req.params.id;
-      const { title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, is_complete, affaire_id, time_spent, completed_at, is_archived, is_deleted, recurrence_type, recurrence_end_date } = req.body;
+      const { title, description_md, start_date, due_date, start_time, end_time, priority, category_id, kanban_column, is_complete, affaire_id, time_spent, focus_time_spent, validation_time_spent, completed_at, is_archived, is_deleted, recurrence_type, recurrence_end_date, image_data } = req.body;
       
       // Get current task to preserve fields not being updated
       const currentTask = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
@@ -679,6 +781,17 @@ async function startServer() {
       // Determine final values
       const finalIsComplete = is_complete !== undefined ? is_complete : currentTask.is_complete;
       const finalCompletedAt = completed_at !== undefined ? completed_at : (finalIsComplete && !currentTask.is_complete ? new Date().toISOString() : currentTask.completed_at);
+
+      const hasExplicitFocus = focus_time_spent !== undefined && focus_time_spent !== null;
+      const hasExplicitValidation = validation_time_spent !== undefined && validation_time_spent !== null;
+
+      const shouldInferFocusFromLegacyTime =
+        time_spent !== undefined &&
+        !hasExplicitFocus &&
+        !hasExplicitValidation &&
+        is_complete !== true;
+
+      const inferredFocusTime = shouldInferFocusFromLegacyTime ? time_spent : undefined;
       
       // Use provided values or fall back to current values
       const updates = {
@@ -693,7 +806,12 @@ async function startServer() {
         kanban_column: kanban_column !== undefined ? kanban_column : currentTask.kanban_column,
         is_complete: finalIsComplete,
         affaire_id: affaire_id !== undefined ? affaire_id : currentTask.affaire_id,
+        image_data: image_data !== undefined ? image_data : currentTask.image_data,
         time_spent: time_spent !== undefined ? time_spent : currentTask.time_spent,
+        focus_time_spent: inferredFocusTime !== undefined
+          ? inferredFocusTime
+          : (hasExplicitFocus ? focus_time_spent : currentTask.focus_time_spent),
+        validation_time_spent: hasExplicitValidation ? validation_time_spent : currentTask.validation_time_spent,
         completed_at: finalCompletedAt,
         is_archived: is_archived !== undefined ? is_archived : currentTask.is_archived,
         is_deleted: is_deleted !== undefined ? is_deleted : currentTask.is_deleted,
@@ -703,10 +821,10 @@ async function startServer() {
       
       const stmt = db.prepare(`
         UPDATE tasks 
-        SET title = ?, description_md = ?, start_date = ?, due_date = ?, start_time = ?, end_time = ?, priority = ?, category_id = ?, kanban_column = ?, is_complete = ?, completed_at = ?, affaire_id = ?, time_spent = ?, is_archived = ?, is_deleted = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = CURRENT_TIMESTAMP
+        SET title = ?, description_md = ?, start_date = ?, due_date = ?, start_time = ?, end_time = ?, priority = ?, category_id = ?, kanban_column = ?, is_complete = ?, completed_at = ?, affaire_id = ?, image_data = ?, time_spent = ?, focus_time_spent = ?, validation_time_spent = ?, is_archived = ?, is_deleted = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `);
-      stmt.run(updates.title, updates.description_md, updates.start_date, updates.due_date, updates.start_time, updates.end_time, updates.priority, updates.category_id, updates.kanban_column, updates.is_complete ? 1 : 0, updates.completed_at, updates.affaire_id, updates.time_spent, updates.is_archived ? 1 : 0, updates.is_deleted ? 1 : 0, updates.recurrence_type, updates.recurrence_end_date, taskId);
+      stmt.run(updates.title, updates.description_md, updates.start_date, updates.due_date, updates.start_time, updates.end_time, updates.priority, updates.category_id, updates.kanban_column, updates.is_complete ? 1 : 0, updates.completed_at, updates.affaire_id, updates.image_data, updates.time_spent, updates.focus_time_spent, updates.validation_time_spent, updates.is_archived ? 1 : 0, updates.is_deleted ? 1 : 0, updates.recurrence_type, updates.recurrence_end_date, taskId);
       
       // XP logic if completed
       if (updates.is_complete && !currentTask.is_complete) {
@@ -779,6 +897,17 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  const recalculateTaskTimeFromCompletedSubtasks = (taskId: number) => {
+    const totalRow = db.prepare(`
+      SELECT COALESCE(SUM(COALESCE(time_spent, 0)), 0) as total
+      FROM subtasks
+      WHERE task_id = ?
+    `).get(taskId) as any;
+
+    const total = Number(totalRow?.total || 0);
+    db.prepare("UPDATE tasks SET subtasks_time_spent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(total, taskId);
+  };
+
   // Subtasks
   app.post("/api/subtasks", (req, res) => {
     const { task_id, title } = req.body;
@@ -786,6 +915,7 @@ async function startServer() {
     const normalizedParentSubtaskId = rawParentSubtaskId == null ? null : Number(rawParentSubtaskId);
     const stmt = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, title) VALUES (?, ?, ?)");
     const info = stmt.run(task_id, normalizedParentSubtaskId, title);
+    recalculateTaskTimeFromCompletedSubtasks(Number(task_id));
     res.json({
       id: info.lastInsertRowid,
       task_id,
@@ -797,7 +927,24 @@ async function startServer() {
   });
 
   app.put("/api/subtasks/:id", (req, res) => {
-    const { is_complete, title, time_spent, completed_at } = req.body;
+    const { is_complete, title, time_spent, focus_time_spent, validation_time_spent, completed_at } = req.body;
+    const subtask = db.prepare("SELECT * FROM subtasks WHERE id = ?").get(req.params.id) as any;
+    if (!subtask) {
+      return res.status(404).json({ error: 'Subtask not found' });
+    }
+
+    const hasExplicitFocus = focus_time_spent !== undefined && focus_time_spent !== null;
+    const hasExplicitValidation = validation_time_spent !== undefined && validation_time_spent !== null;
+
+    const shouldInferFocusFromLegacyTime =
+      time_spent !== undefined &&
+      !hasExplicitFocus &&
+      !hasExplicitValidation &&
+      is_complete !== true;
+
+    const resolvedFocusTime = shouldInferFocusFromLegacyTime ? time_spent : (hasExplicitFocus ? focus_time_spent : undefined);
+    const resolvedValidationTime = hasExplicitValidation ? validation_time_spent : undefined;
+
     const resolvedParentSubtaskId = req.body.parent_subtask_id ?? req.body.parentSubtaskId;
     let query = "UPDATE subtasks SET ";
     const updates = [];
@@ -815,6 +962,14 @@ async function startServer() {
       updates.push("time_spent = ?");
       params.push(time_spent);
     }
+    if (resolvedFocusTime !== undefined) {
+      updates.push("focus_time_spent = ?");
+      params.push(resolvedFocusTime);
+    }
+    if (resolvedValidationTime !== undefined) {
+      updates.push("validation_time_spent = ?");
+      params.push(resolvedValidationTime);
+    }
     if (completed_at !== undefined) {
       updates.push("completed_at = ?");
       params.push(completed_at);
@@ -829,10 +984,17 @@ async function startServer() {
       params.push(req.params.id);
       db.prepare(query).run(...params);
     }
+
+    recalculateTaskTimeFromCompletedSubtasks(Number(subtask.task_id));
     res.json({ success: true });
   });
 
   app.delete("/api/subtasks/:id", (req, res) => {
+    const subtask = db.prepare("SELECT id, task_id FROM subtasks WHERE id = ?").get(req.params.id) as any;
+    if (!subtask) {
+      return res.status(404).json({ error: 'Subtask not found' });
+    }
+
     db.prepare(`
       WITH RECURSIVE descendants(id) AS (
         SELECT ?
@@ -843,7 +1005,74 @@ async function startServer() {
       )
       DELETE FROM subtasks WHERE id IN (SELECT id FROM descendants)
     `).run(req.params.id);
+
+    recalculateTaskTimeFromCompletedSubtasks(Number(subtask.task_id));
     res.json({ success: true });
+  });
+
+  app.get("/api/documents/:entityType/:entityId", (req, res) => {
+    const { entityType, entityId } = req.params;
+    if (!['task', 'subtask'].includes(entityType)) {
+      return res.status(400).json({ error: 'Invalid entity type' });
+    }
+
+    const documents = db.prepare(`
+      SELECT id, entity_type, entity_id, file_name, mime_type, data_url, created_at
+      FROM documents
+      WHERE entity_type = ? AND entity_id = ?
+      ORDER BY created_at DESC, id DESC
+    `).all(entityType, entityId);
+
+    res.json(documents);
+  });
+
+  app.post("/api/documents", (req, res) => {
+    try {
+      const { entity_type, entity_id, file_name, mime_type, data_url } = req.body;
+
+      if (!['task', 'subtask'].includes(entity_type)) {
+        return res.status(400).json({ error: 'Invalid entity_type' });
+      }
+      if (!entity_id || !file_name || !data_url) {
+        return res.status(400).json({ error: 'Missing required document fields' });
+      }
+
+      const stmt = db.prepare(`
+        INSERT INTO documents (entity_type, entity_id, file_name, mime_type, data_url)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(entity_type, entity_id, file_name, mime_type || null, data_url);
+
+      const created = db.prepare(`
+        SELECT id, entity_type, entity_id, file_name, mime_type, data_url, created_at
+        FROM documents WHERE id = ?
+      `).get(info.lastInsertRowid);
+
+      res.json(created);
+    } catch (error: any) {
+      console.error('Error saving document:', error);
+      res.status(500).json({ error: error?.message || 'Failed to save document' });
+    }
+  });
+
+  app.delete("/api/documents/:id", (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      if (!Number.isFinite(documentId) || documentId <= 0) {
+        return res.status(400).json({ error: 'Invalid document id' });
+      }
+
+      const existing = db.prepare("SELECT id FROM documents WHERE id = ?").get(documentId) as any;
+      if (!existing) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+
+      db.prepare("DELETE FROM documents WHERE id = ?").run(documentId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error deleting document:', error);
+      res.status(500).json({ error: error?.message || 'Failed to delete document' });
+    }
   });
 
   // Task Assignees
@@ -916,10 +1145,13 @@ async function startServer() {
       const affaires = db.prepare("SELECT * FROM affaires").all();
       const pomodoro = db.prepare("SELECT * FROM pomodoro").all();
       const task_assignees = db.prepare("SELECT * FROM task_assignees").all();
+      const appointments = db.prepare("SELECT * FROM appointments").all();
+      const appointment_participants = db.prepare("SELECT * FROM appointment_participants").all();
+      const documents = db.prepare("SELECT * FROM documents").all();
 
       const backupData = {
         app: "TodoApp",
-        version: "3.0",
+        version: "4.1",
         exported_at: new Date().toISOString(),
         exported_by: profile.name,
         profiles,
@@ -929,6 +1161,9 @@ async function startServer() {
         affaires,
         pomodoro,
         task_assignees,
+        appointments,
+        appointment_participants,
+        documents,
         comments: comments || {},
         images: [],
         badges: [],
@@ -1029,9 +1264,57 @@ async function startServer() {
         // Warning: checksum mismatch
       }
 
+      const restoreDocumentsWithMappings = (
+        taskMap: Map<number, number>,
+        subtaskMap: Map<number, number>,
+        dedupe: boolean
+      ) => {
+        for (const doc of (backupData.documents || [])) {
+          const entityType = String(doc?.entity_type || '').toLowerCase();
+          const oldEntityId = Number(doc?.entity_id);
+          const mappedEntityId = entityType === 'task'
+            ? taskMap.get(oldEntityId)
+            : entityType === 'subtask'
+              ? subtaskMap.get(oldEntityId)
+              : null;
+
+          if (!mappedEntityId) continue;
+
+          const fileName = doc?.file_name || 'document';
+          const mimeType = doc?.mime_type || null;
+          const dataUrl = doc?.data_url || '';
+          const createdAt = doc?.created_at || null;
+
+          if (!dataUrl) continue;
+
+          if (dedupe) {
+            const existing = db.prepare(`
+              SELECT id FROM documents
+              WHERE entity_type = ?
+                AND entity_id = ?
+                AND file_name = ?
+                AND COALESCE(mime_type, '') = COALESCE(?, '')
+                AND COALESCE(created_at, '') = COALESCE(?, '')
+              LIMIT 1
+            `).get(entityType, mappedEntityId, fileName, mimeType, createdAt) as any;
+
+            if (existing) {
+              continue;
+            }
+          }
+
+          db.prepare(`
+            INSERT INTO documents (entity_type, entity_id, file_name, mime_type, data_url, created_at)
+            VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          `).run(entityType, mappedEntityId, fileName, mimeType, dataUrl, createdAt);
+        }
+      };
+
       db.transaction(() => {
         if (mode === "full") {
           // Wipe existing data
+          db.prepare("DELETE FROM appointment_participants").run();
+          db.prepare("DELETE FROM appointments").run();
           db.prepare("DELETE FROM subtasks").run();
           db.prepare("DELETE FROM task_assignees").run();
           db.prepare("DELETE FROM pomodoro").run();
@@ -1043,16 +1326,29 @@ async function startServer() {
 
           // Insert profiles
           const profileMap = new Map();
-          for (const p of backupData.profiles) {
-            const info = db.prepare("INSERT INTO profiles (name, avatar, color_theme, app_background_theme, pin_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-              p.name, p.avatar, p.color_theme, p.app_background_theme || p.color_theme, p.pin_hash, p.created_at
+          for (const p of (backupData.profiles || [])) {
+            const info = db.prepare("INSERT INTO profiles (name, avatar, color_theme, app_background_theme, is_archived, logo, custom_background_image, font_family, text_color, custom_labels, pin_hash, xp, level, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+              p.name,
+              p.avatar,
+              p.color_theme,
+              p.app_background_theme || p.color_theme || 'theme-1',
+              p.is_archived ? 1 : 0,
+              p.logo || null,
+              p.custom_background_image || null,
+              p.font_family || 'system',
+              p.text_color || '#000000',
+              p.custom_labels || null,
+              p.pin_hash || null,
+              Number.isFinite(p.xp) ? p.xp : 0,
+              Number.isFinite(p.level) ? p.level : 1,
+              p.created_at
             );
             profileMap.set(p.id, info.lastInsertRowid);
           }
 
           // Insert categories
           const categoryMap = new Map();
-          for (const c of backupData.categories) {
+          for (const c of (backupData.categories || [])) {
             const info = db.prepare("INSERT INTO categories (profile_id, name, color) VALUES (?, ?, ?)").run(
               profileMap.get(c.profile_id), c.name, c.color
             );
@@ -1061,7 +1357,7 @@ async function startServer() {
 
           // Insert affaires
           const affaireMap = new Map();
-          for (const a of backupData.affaires) {
+          for (const a of (backupData.affaires || [])) {
             const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
               profileMap.get(a.profile_id), a.number, a.name, a.color, a.status, a.created_at
             );
@@ -1070,20 +1366,40 @@ async function startServer() {
 
           // Insert tasks
           const taskMap = new Map();
-          for (const t of backupData.tasks) {
+          for (const t of (backupData.tasks || [])) {
             const info = db.prepare(`
-              INSERT INTO tasks (profile_id, title, description_md, due_date, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, recurrence, order_index, kanban_column, created_at, completed_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
-              profileMap.get(t.profile_id), t.title, t.description_md, t.due_date, t.priority, 
-              categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, 
-              t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.recurrence, t.order_index, t.kanban_column, t.created_at, t.completed_at
+              profileMap.get(t.profile_id),
+              t.title,
+              t.description_md,
+              t.start_date || null,
+              t.due_date,
+              t.start_time || null,
+              t.end_time || null,
+              t.priority,
+              categoryMap.get(t.category_id) || null,
+              affaireMap.get(t.affaire_id) || null,
+              t.is_complete ? 1 : 0,
+              t.is_archived ? 1 : 0,
+              t.is_deleted ? 1 : 0,
+              t.bg_color || null,
+              Number.isFinite(t.time_spent) ? t.time_spent : 0,
+              t.recurrence || null,
+              t.recurrence_type || null,
+              t.recurrence_end_date || null,
+              t.order_index,
+              t.kanban_column,
+              t.created_at,
+              t.updated_at || t.created_at,
+              t.completed_at || null
             );
             taskMap.set(t.id, info.lastInsertRowid);
           }
 
           // Insert subtasks
-          restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
+          const subtaskMap = restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
 
           // Insert task assignees
           if (backupData.task_assignees && Array.isArray(backupData.task_assignees)) {
@@ -1097,13 +1413,56 @@ async function startServer() {
           }
 
           // Insert pomodoro
-          for (const p of backupData.pomodoro) {
+          for (const p of (backupData.pomodoro || [])) {
             if (taskMap.has(p.task_id)) {
               db.prepare("INSERT INTO pomodoro (profile_id, task_id, duration_min, completed_at) VALUES (?, ?, ?, ?)").run(
                 profileMap.get(p.profile_id), taskMap.get(p.task_id), p.duration_min, p.completed_at
               );
             }
           }
+
+          // Insert appointments
+          const appointmentMap = new Map();
+          for (const a of (backupData.appointments || [])) {
+            const mappedProfileId = profileMap.get(a.profile_id);
+            if (!mappedProfileId) continue;
+
+            const info = db.prepare(`
+              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              mappedProfileId,
+              a.title,
+              a.description,
+              a.location,
+              a.start_time,
+              a.end_time,
+              affaireMap.get(a.affaire_id) || null,
+              a.video_call_link,
+              a.recurrence_type || null,
+              a.recurrence_end_date || null,
+              a.created_at,
+              a.updated_at || a.created_at
+            );
+            appointmentMap.set(a.id, info.lastInsertRowid);
+          }
+
+          // Insert appointment participants
+          for (const ap of (backupData.appointment_participants || [])) {
+            if (!appointmentMap.has(ap.appointment_id)) continue;
+            db.prepare("INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+              appointmentMap.get(ap.appointment_id),
+              ap.first_name,
+              ap.last_name,
+              ap.company_entity,
+              ap.phone,
+              ap.email,
+              ap.created_at
+            );
+          }
+
+          // Insert documents for tasks/subtasks
+          restoreDocumentsWithMappings(taskMap, subtaskMap, false);
         } else if (mode === "merge") {
           // Smart merge: Add tasks that don't exist, update if newer
           // For simplicity, we will merge into the first existing profile or the first imported profile
@@ -1159,28 +1518,67 @@ async function startServer() {
               if (backupUpdated > existingUpdated) {
                 db.prepare(`
                   UPDATE tasks 
-                  SET description_md = ?, due_date = ?, priority = ?, category_id = ?, affaire_id = ?, is_complete = ?, is_archived = ?, is_deleted = ?, recurrence = ?, order_index = ?, kanban_column = ?, completed_at = ?, updated_at = ?
+                  SET description_md = ?, start_date = ?, due_date = ?, start_time = ?, end_time = ?, priority = ?, category_id = ?, affaire_id = ?, is_complete = ?, is_archived = ?, is_deleted = ?, bg_color = ?, time_spent = ?, recurrence = ?, recurrence_type = ?, recurrence_end_date = ?, order_index = ?, kanban_column = ?, completed_at = ?, updated_at = ?
                   WHERE id = ?
                 `).run(
-                  t.description_md, t.due_date, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null,
-                  t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.recurrence, t.order_index, t.kanban_column, t.completed_at, t.updated_at || t.created_at, existing.id
+                  t.description_md,
+                  t.start_date || null,
+                  t.due_date,
+                  t.start_time || null,
+                  t.end_time || null,
+                  t.priority,
+                  categoryMap.get(t.category_id) || null,
+                  affaireMap.get(t.affaire_id) || null,
+                  t.is_complete ? 1 : 0,
+                  t.is_archived ? 1 : 0,
+                  t.is_deleted ? 1 : 0,
+                  t.bg_color || null,
+                  Number.isFinite(t.time_spent) ? t.time_spent : 0,
+                  t.recurrence || null,
+                  t.recurrence_type || null,
+                  t.recurrence_end_date || null,
+                  t.order_index,
+                  t.kanban_column,
+                  t.completed_at,
+                  t.updated_at || t.created_at,
+                  existing.id
                 );
               }
             } else {
               const info = db.prepare(`
-                INSERT INTO tasks (profile_id, title, description_md, due_date, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, recurrence, order_index, kanban_column, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).run(
-                targetProfileId, t.title, t.description_md, t.due_date, t.priority, 
-                categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, 
-                t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.recurrence, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at
+                targetProfileId,
+                t.title,
+                t.description_md,
+                t.start_date || null,
+                t.due_date,
+                t.start_time || null,
+                t.end_time || null,
+                t.priority,
+                categoryMap.get(t.category_id) || null,
+                affaireMap.get(t.affaire_id) || null,
+                t.is_complete ? 1 : 0,
+                t.is_archived ? 1 : 0,
+                t.is_deleted ? 1 : 0,
+                t.bg_color || null,
+                Number.isFinite(t.time_spent) ? t.time_spent : 0,
+                t.recurrence || null,
+                t.recurrence_type || null,
+                t.recurrence_end_date || null,
+                t.order_index,
+                t.kanban_column,
+                t.created_at,
+                t.updated_at || t.created_at,
+                t.completed_at
               );
               taskMap.set(t.id, info.lastInsertRowid);
             }
           }
 
           // Merge subtasks
-          restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'merge');
+          const subtaskMap = restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'merge');
 
           // Merge task assignees
           if (backupData.task_assignees && Array.isArray(backupData.task_assignees)) {
@@ -1196,21 +1594,110 @@ async function startServer() {
             }
           }
 
+          // Merge appointments
+          const appointmentMap = new Map();
+          for (const a of (backupData.appointments || [])) {
+            const existing = db.prepare("SELECT id, updated_at FROM appointments WHERE profile_id = ? AND title = ? AND start_time = ? AND end_time = ?").get(targetProfileId, a.title, a.start_time, a.end_time) as any;
+
+            if (existing) {
+              appointmentMap.set(a.id, existing.id);
+              const backupUpdated = new Date(a.updated_at || a.created_at || 0).getTime();
+              const existingUpdated = new Date(existing.updated_at || 0).getTime();
+
+              if (backupUpdated > existingUpdated) {
+                db.prepare(`
+                  UPDATE appointments
+                  SET description = ?, location = ?, affaire_id = ?, video_call_link = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = ?
+                  WHERE id = ?
+                `).run(
+                  a.description,
+                  a.location,
+                  affaireMap.get(a.affaire_id) || null,
+                  a.video_call_link,
+                  a.recurrence_type || null,
+                  a.recurrence_end_date || null,
+                  a.updated_at || a.created_at,
+                  existing.id
+                );
+              }
+            } else {
+              const info = db.prepare(`
+                INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(
+                targetProfileId,
+                a.title,
+                a.description,
+                a.location,
+                a.start_time,
+                a.end_time,
+                affaireMap.get(a.affaire_id) || null,
+                a.video_call_link,
+                a.recurrence_type || null,
+                a.recurrence_end_date || null,
+                a.created_at,
+                a.updated_at || a.created_at
+              );
+              appointmentMap.set(a.id, info.lastInsertRowid);
+            }
+          }
+
+          // Merge appointment participants
+          for (const ap of (backupData.appointment_participants || [])) {
+            if (!appointmentMap.has(ap.appointment_id)) continue;
+            const mappedAppointmentId = appointmentMap.get(ap.appointment_id);
+            const existing = db.prepare("SELECT id FROM appointment_participants WHERE appointment_id = ? AND first_name = ? AND last_name = ? AND email = ?").get(
+              mappedAppointmentId,
+              ap.first_name,
+              ap.last_name,
+              ap.email || null
+            ) as any;
+
+            if (!existing) {
+              db.prepare("INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+                mappedAppointmentId,
+                ap.first_name,
+                ap.last_name,
+                ap.company_entity,
+                ap.phone,
+                ap.email,
+                ap.created_at
+              );
+            }
+          }
+
+          // Merge documents for tasks/subtasks
+          restoreDocumentsWithMappings(taskMap, subtaskMap, true);
+
         } else if (mode === "profile") {
           // Import specific profiles
           const profileMap = new Map();
-          for (const p of backupData.profiles) {
+          const { noSuffix } = req.body;
+          for (const p of (backupData.profiles || [])) {
             // Always create new profile to avoid conflicts
-            const newName = `${p.name} (Importé)`;
-            const info = db.prepare("INSERT INTO profiles (name, avatar, color_theme, app_background_theme, pin_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-              newName, p.avatar, p.color_theme, p.app_background_theme || p.color_theme, p.pin_hash, p.created_at
+            const newName = noSuffix ? p.name : `${p.name} (Importé)`;
+            const info = db.prepare("INSERT INTO profiles (name, avatar, color_theme, app_background_theme, is_archived, logo, custom_background_image, font_family, text_color, custom_labels, pin_hash, xp, level, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+              newName,
+              p.avatar,
+              p.color_theme,
+              p.app_background_theme || p.color_theme || 'theme-1',
+              p.is_archived ? 1 : 0,
+              p.logo || null,
+              p.custom_background_image || null,
+              p.font_family || 'system',
+              p.text_color || '#000000',
+              p.custom_labels || null,
+              p.pin_hash || null,
+              Number.isFinite(p.xp) ? p.xp : 0,
+              Number.isFinite(p.level) ? p.level : 1,
+              p.created_at
             );
             profileMap.set(p.id, info.lastInsertRowid);
           }
 
           // Insert categories
           const categoryMap = new Map();
-          for (const c of backupData.categories) {
+          for (const c of (backupData.categories || [])) {
             if (profileMap.has(c.profile_id)) {
               const info = db.prepare("INSERT INTO categories (profile_id, name, color) VALUES (?, ?, ?)").run(
                 profileMap.get(c.profile_id), c.name, c.color
@@ -1221,7 +1708,7 @@ async function startServer() {
 
           // Insert affaires
           const affaireMap = new Map();
-          for (const a of backupData.affaires) {
+          for (const a of (backupData.affaires || [])) {
             if (profileMap.has(a.profile_id)) {
               const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
                 profileMap.get(a.profile_id), a.number, a.name, a.color, a.status, a.created_at
@@ -1232,22 +1719,42 @@ async function startServer() {
 
           // Insert tasks
           const taskMap = new Map();
-          for (const t of backupData.tasks) {
+          for (const t of (backupData.tasks || [])) {
             if (profileMap.has(t.profile_id)) {
               const info = db.prepare(`
-                INSERT INTO tasks (profile_id, title, description_md, due_date, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, recurrence, order_index, kanban_column, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `).run(
-                profileMap.get(t.profile_id), t.title, t.description_md, t.due_date, t.priority, 
-                categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, 
-                t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.recurrence, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at
+                profileMap.get(t.profile_id),
+                t.title,
+                t.description_md,
+                t.start_date || null,
+                t.due_date,
+                t.start_time || null,
+                t.end_time || null,
+                t.priority,
+                categoryMap.get(t.category_id) || null,
+                affaireMap.get(t.affaire_id) || null,
+                t.is_complete ? 1 : 0,
+                t.is_archived ? 1 : 0,
+                t.is_deleted ? 1 : 0,
+                t.bg_color || null,
+                Number.isFinite(t.time_spent) ? t.time_spent : 0,
+                t.recurrence || null,
+                t.recurrence_type || null,
+                t.recurrence_end_date || null,
+                t.order_index,
+                t.kanban_column,
+                t.created_at,
+                t.updated_at || t.created_at,
+                t.completed_at
               );
               taskMap.set(t.id, info.lastInsertRowid);
             }
           }
 
           // Insert subtasks
-          restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
+          const subtaskMap = restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
 
           // Insert task assignees
           if (backupData.task_assignees && Array.isArray(backupData.task_assignees)) {
@@ -1261,13 +1768,56 @@ async function startServer() {
           }
 
           // Insert pomodoro
-          for (const p of backupData.pomodoro) {
+          for (const p of (backupData.pomodoro || [])) {
             if (taskMap.has(p.task_id)) {
               db.prepare("INSERT INTO pomodoro (profile_id, task_id, duration_min, completed_at) VALUES (?, ?, ?, ?)").run(
                 profileMap.get(p.profile_id), taskMap.get(p.task_id), p.duration_min, p.completed_at
               );
             }
           }
+
+          // Insert appointments for imported profiles
+          const appointmentMap = new Map();
+          for (const a of (backupData.appointments || [])) {
+            const mappedProfileId = profileMap.get(a.profile_id);
+            if (!mappedProfileId) continue;
+
+            const info = db.prepare(`
+              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              mappedProfileId,
+              a.title,
+              a.description,
+              a.location,
+              a.start_time,
+              a.end_time,
+              affaireMap.get(a.affaire_id) || null,
+              a.video_call_link,
+              a.recurrence_type || null,
+              a.recurrence_end_date || null,
+              a.created_at,
+              a.updated_at || a.created_at
+            );
+            appointmentMap.set(a.id, info.lastInsertRowid);
+          }
+
+          // Insert appointment participants for imported profiles
+          for (const ap of (backupData.appointment_participants || [])) {
+            if (!appointmentMap.has(ap.appointment_id)) continue;
+            db.prepare("INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+              appointmentMap.get(ap.appointment_id),
+              ap.first_name,
+              ap.last_name,
+              ap.company_entity,
+              ap.phone,
+              ap.email,
+              ap.created_at
+            );
+          }
+
+          // Insert documents for imported profiles
+          restoreDocumentsWithMappings(taskMap, subtaskMap, false);
         }
       })();
 
@@ -1301,55 +1851,118 @@ async function startServer() {
   });
 
   app.post("/api/appointments", (req, res) => {
-    const { profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
-    
-    const stmt = db.prepare(`
-      INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const info = stmt.run(profile_id, title, description, location, start_time, end_time, affaire_id || null, video_call_link, recurrence_type, recurrence_end_date);
-    const appointmentId = info.lastInsertRowid;
+    try {
+      const { profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
 
-    // Insert participants
-    if (participants && Array.isArray(participants)) {
-      const participantStmt = db.prepare(`
-        INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      
-      for (const p of participants) {
-        participantStmt.run(appointmentId, p.first_name, p.last_name, p.company_entity, p.phone, p.email);
+      if (!profile_id || !title || !start_time || !end_time) {
+        return res.status(400).json({ error: "Missing required fields (profile_id, title, start_time, end_time)" });
       }
-    }
 
-    res.json({ id: appointmentId, success: true });
+      const normalizedParticipants = Array.isArray(participants)
+        ? participants.map((p: any) => ({
+            first_name: (p?.first_name ?? '').toString().trim(),
+            last_name: (p?.last_name ?? '').toString().trim(),
+            company_entity: (p?.company_entity ?? '').toString().trim(),
+            phone: (p?.phone ?? '').toString().trim(),
+            email: (p?.email ?? '').toString().trim(),
+          }))
+          .filter((p: any) => p.first_name || p.last_name || p.email || p.phone || p.company_entity)
+        : [];
+
+      const stmt = db.prepare(`
+        INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const info = stmt.run(
+        profile_id,
+        title,
+        description,
+        location,
+        start_time,
+        end_time,
+        affaire_id || null,
+        video_call_link || null,
+        recurrence_type || null,
+        recurrence_end_date || null
+      );
+      const appointmentId = info.lastInsertRowid;
+
+      if (normalizedParticipants.length > 0) {
+        const participantStmt = db.prepare(`
+          INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const p of normalizedParticipants) {
+          participantStmt.run(
+            appointmentId,
+            p.first_name || '',
+            p.last_name || '',
+            p.company_entity || '',
+            p.phone || '',
+            p.email || ''
+          );
+        }
+      }
+
+      res.json({ id: appointmentId, success: true });
+    } catch (error: any) {
+      console.error('❌ POST /api/appointments error:', error);
+      res.status(500).json({ error: error?.message || 'Failed to save appointment' });
+    }
   });
 
   app.put("/api/appointments/:id", (req, res) => {
-    const { title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
-    
-    db.prepare(`
-      UPDATE appointments 
-      SET title = ?, description = ?, location = ?, start_time = ?, end_time = ?, affaire_id = ?, video_call_link = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(title, description, location, start_time, end_time, affaire_id || null, video_call_link, recurrence_type, recurrence_end_date, req.params.id);
+    try {
+      const { title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
 
-    // Update participants - delete and recreate
-    db.prepare("DELETE FROM appointment_participants WHERE appointment_id = ?").run(req.params.id);
-    
-    if (participants && Array.isArray(participants)) {
-      const participantStmt = db.prepare(`
-        INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      
-      for (const p of participants) {
-        participantStmt.run(req.params.id, p.first_name, p.last_name, p.company_entity, p.phone, p.email);
+      if (!title || !start_time || !end_time) {
+        return res.status(400).json({ error: "Missing required fields (title, start_time, end_time)" });
       }
-    }
 
-    res.json({ success: true });
+      db.prepare(`
+        UPDATE appointments 
+        SET title = ?, description = ?, location = ?, start_time = ?, end_time = ?, affaire_id = ?, video_call_link = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(title, description, location, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null, req.params.id);
+
+      db.prepare("DELETE FROM appointment_participants WHERE appointment_id = ?").run(req.params.id);
+
+      const normalizedParticipants = Array.isArray(participants)
+        ? participants.map((p: any) => ({
+            first_name: (p?.first_name ?? '').toString().trim(),
+            last_name: (p?.last_name ?? '').toString().trim(),
+            company_entity: (p?.company_entity ?? '').toString().trim(),
+            phone: (p?.phone ?? '').toString().trim(),
+            email: (p?.email ?? '').toString().trim(),
+          }))
+          .filter((p: any) => p.first_name || p.last_name || p.email || p.phone || p.company_entity)
+        : [];
+
+      if (normalizedParticipants.length > 0) {
+        const participantStmt = db.prepare(`
+          INSERT INTO appointment_participants (appointment_id, first_name, last_name, company_entity, phone, email)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const p of normalizedParticipants) {
+          participantStmt.run(
+            req.params.id,
+            p.first_name || '',
+            p.last_name || '',
+            p.company_entity || '',
+            p.phone || '',
+            p.email || ''
+          );
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('❌ PUT /api/appointments/:id error:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update appointment' });
+    }
   });
 
   app.delete("/api/appointments/:id", (req, res) => {

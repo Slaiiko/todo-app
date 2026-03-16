@@ -7,6 +7,7 @@ import { getAPIUrl } from '../utils/api';
 import { useState, useEffect, useMemo } from 'react';
 import SubtaskList from './SubtaskList';
 import TaskRow from './TaskRow';
+import TaskImageThumb from './TaskImageThumb';
 
 interface Props {
   tasks: Task[];
@@ -536,11 +537,49 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                           >
                             <CheckCircle2 className="w-5 h-5" />
                           </motion.button>
+                          <TaskImageThumb
+                            taskId={task.id}
+                            imageData={task.image_data}
+                            alt={task.title || 'Photo de la tâche'}
+                            className="w-12 h-12 rounded-lg object-cover border border-zinc-200 shadow-sm shrink-0"
+                          />
                           
                           <div className="flex-1 min-w-0">
                             <h3 className="font-medium text-sm line-through text-zinc-500">
                               {task.title}
                             </h3>
+                            {(() => {
+                              const totalTime = Number(task.time_spent || 0) || 0;
+                              const focusTime = Number((task as any).focus_time_spent || 0) || 0;
+                              const validationTime = Number((task as any).validation_time_spent || 0) || 0;
+                              const knownTime = focusTime + validationTime;
+                              const legacyTime = totalTime > knownTime ? totalTime - knownTime : 0;
+
+                              if (focusTime <= 0 && validationTime <= 0 && legacyTime <= 0) return null;
+
+                              return (
+                                <div className="flex items-center flex-wrap gap-2 mt-1.5">
+                                  {focusTime > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded-lg">
+                                      <Clock className="w-3 h-3" />
+                                      Focus · {Math.floor(focusTime / 60)}h {focusTime % 60}min
+                                    </span>
+                                  )}
+                                  {validationTime > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg">
+                                      <Clock className="w-3 h-3" />
+                                      Validation · {Math.floor(validationTime / 60)}h {validationTime % 60}min
+                                    </span>
+                                  )}
+                                  {legacyTime > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-700 bg-zinc-100 px-2 py-1 rounded-lg">
+                                      <Clock className="w-3 h-3" />
+                                      Temps · {Math.floor(legacyTime / 60)}h {legacyTime % 60}min
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                           
                           {hoveredId === task.id && (

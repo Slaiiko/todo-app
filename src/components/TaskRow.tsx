@@ -1,11 +1,14 @@
 import { Task, Subtask } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, Circle, Clock, Trash2, Edit2, Briefcase, MessageCircle, ChevronDown, Plus, AlertCircle, Palette, Copy } from 'lucide-react';
+import { CheckCircle2, Circle, Clock, Trash2, Edit2, Briefcase, MessageCircle, ChevronDown, Plus, AlertCircle, Palette, Copy, ImagePlus } from 'lucide-react';
 import { format, isPast, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { memo, useState, useEffect, useRef } from 'react';
 import { HexColorPicker } from 'react-colorful';
 import SubtaskList from './SubtaskList';
+import { getAPIUrl } from '../utils/api';
+import EntityDocuments from './EntityDocuments';
+import TaskImageThumb from './TaskImageThumb';
 
 interface TaskRowProps {
   task: Task;
@@ -51,7 +54,9 @@ const TaskRowComponent = ({
   const [showAddFormOnExpand, setShowAddFormOnExpand] = useState(false);
   const [selectedColor, setSelectedColor] = useState(task.bg_color || '#ffffff');
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [hasThumbnail, setHasThumbnail] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const taskImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -80,6 +85,132 @@ const TaskRowComponent = ({
       console.error('Failed to update task color:', error);
     }
   };
+
+  const handleTaskImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Image read failed'));
+        reader.readAsDataURL(file);
+      });
+
+      const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_data: dataUrl })
+      });
+
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('taskMoved'));
+      }
+    } catch (error) {
+      console.error('Failed to update task image:', error);
+      alert('Erreur lors de l\'ajout de la photo.');
+    } finally {
+      if (taskImageInputRef.current) {
+        taskImageInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleDeleteTaskThumbnail = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    try {
+      if (task.image_data) {
+        const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_data: null })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        window.dispatchEvent(new CustomEvent('taskMoved'));
+        return;
+      }
+
+      const docsResponse = await fetch(getAPIUrl(`/documents/task/${task.id}`));
+      if (!docsResponse.ok) {
+        throw new Error(`HTTP ${docsResponse.status}`);
+      }
+
+      const docs = await docsResponse.json();
+      const imageDoc = Array.isArray(docs)
+        ? docs.find((doc: any) => {
+            const mimeType = String(doc?.mime_type || '').toLowerCase();
+            const dataUrl = String(doc?.data_url || '');
+            return mimeType.startsWith('image/') || dataUrl.startsWith('data:image/');
+          })
+        : null;
+
+      if (!imageDoc?.id) {
+        return;
+      }
+
+      const deleteResponse = await fetch(getAPIUrl(`/documents/${imageDoc.id}`), {
+        method: 'DELETE'
+      });
+
+      if (!deleteResponse.ok) {
+        throw new Error(`HTTP ${deleteResponse.status}`);
+      }
+
+      window.dispatchEvent(new CustomEvent('taskMoved'));
+    } catch (error) {
+      console.error('Failed to delete task thumbnail:', error);
+      alert('Erreur lors de la suppression de la vignette.');
+    }
+  };
+
+  const handleResetTaskFocusTime = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const nextValidation = Number(task.validation_time_spent || 0) || 0;
+      const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          focus_time_spent: 0,
+          time_spent: nextValidation
+        })
+      });
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('taskMoved'));
+      }
+    } catch (error) {
+      console.error('Failed to reset task focus time:', error);
+    }
+  };
+
+  const handleResetTaskValidationTime = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const nextFocus = Number(task.focus_time_spent || 0) || 0;
+      const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          validation_time_spent: 0,
+          time_spent: nextFocus
+        })
+      });
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent('taskMoved'));
+      }
+    } catch (error) {
+      console.error('Failed to reset task validation time:', error);
+    }
+  };
   const isOverdue = task.due_date && isPast(parseISO(task.due_date)) && !task.is_complete;
   const completedSubtasks = task.subtasks?.filter(s => s.is_complete).length || 0;
   const totalSubtasks = task.subtasks?.length || 0;
@@ -87,6 +218,19 @@ const TaskRowComponent = ({
   const taskComments = commentsMap[`task-${task.id}`] || [];
   const isDeleting = deletingId === task.id;
   const isExpanded = expandedTaskIds.has(task.id);
+  const directTaskTime = Number(task.time_spent || 0) || 0;
+  const taskFocusTime = Number(task.focus_time_spent || 0) || 0;
+  const taskValidationTime = Number(task.validation_time_spent || 0) || 0;
+  const knownTaskTime = taskFocusTime + taskValidationTime;
+  const legacyTaskTime = directTaskTime > knownTaskTime ? directTaskTime - knownTaskTime : 0;
+  const subtasksList = Array.isArray(task.subtasks) ? task.subtasks : [];
+  const subtasksTotalTime = subtasksList.length > 0
+    ? subtasksList.reduce((total, subtask) => total + (Number(subtask.time_spent || 0) || 0), 0)
+    : (Number(task.subtasks_time_spent || 0) || 0);
+  const subtasksFocusTime = subtasksList.reduce((total, subtask) => total + (Number((subtask as any).focus_time_spent || 0) || 0), 0);
+  const subtasksValidationTime = subtasksList.reduce((total, subtask) => total + (Number((subtask as any).validation_time_spent || 0) || 0), 0);
+  const subtasksKnownTime = subtasksFocusTime + subtasksValidationTime;
+  const subtasksLegacyTime = subtasksTotalTime > subtasksKnownTime ? subtasksTotalTime - subtasksKnownTime : 0;
 
   // Reset showAddFormOnExpand after 100ms to allow SubtaskList to capture it
   useEffect(() => {
@@ -196,13 +340,60 @@ const TaskRowComponent = ({
                     Créé {format(parseISO(task.created_at), 'PPp', { locale: fr })}
                   </span>
                 )}
-                {task.time_spent != null && Number(task.time_spent) > 0 && (
+                {taskFocusTime > 0 && (
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded-lg">
                     <Clock className="w-3 h-3" />
-                    {Math.floor(Number(task.time_spent) / 60)}h {Number(task.time_spent) % 60}min
+                    Focus · {Math.floor(taskFocusTime / 60)}h {taskFocusTime % 60}min
+                    <button
+                      type="button"
+                      onClick={handleResetTaskFocusTime}
+                      className="ml-1 text-purple-500 hover:text-red-600 transition-colors"
+                      title="Remettre le temps Focus à 0"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {taskValidationTime > 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg">
+                    <Clock className="w-3 h-3" />
+                    Validation · {Math.floor(taskValidationTime / 60)}h {taskValidationTime % 60}min
+                    <button
+                      type="button"
+                      onClick={handleResetTaskValidationTime}
+                      className="ml-1 text-indigo-500 hover:text-red-600 transition-colors"
+                      title="Remettre le temps Validation à 0"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+                {legacyTaskTime > 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-700 bg-zinc-100 px-2 py-1 rounded-lg">
+                    <Clock className="w-3 h-3" />
+                    Temps · {Math.floor(legacyTaskTime / 60)}h {legacyTaskTime % 60}min
+                  </span>
+                )}
+                {subtasksFocusTime > 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 bg-purple-50 px-2 py-1 rounded-lg">
+                    <Clock className="w-3 h-3" />
+                    Sous-tâches Focus · {Math.floor(subtasksFocusTime / 60)}h {subtasksFocusTime % 60}min
+                  </span>
+                )}
+                {subtasksValidationTime > 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg">
+                    <Clock className="w-3 h-3" />
+                    Sous-tâches Validation · {Math.floor(subtasksValidationTime / 60)}h {subtasksValidationTime % 60}min
+                  </span>
+                )}
+                {subtasksLegacyTime > 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-fuchsia-700 bg-fuchsia-50 px-2 py-1 rounded-lg">
+                    <Clock className="w-3 h-3" />
+                    Sous-tâches Temps · {Math.floor(subtasksLegacyTime / 60)}h {subtasksLegacyTime % 60}min
                   </span>
                 )}
               </div>
+              <EntityDocuments entityType="task" entityId={task.id} />
             </div>
 
             {hoveredId === task.id && (
@@ -211,6 +402,13 @@ const TaskRowComponent = ({
                 animate={{ opacity: 1 }}
                 className="flex gap-1 relative"
               >
+                <input
+                  ref={taskImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleTaskImageSelected}
+                />
                 <div className="relative" ref={pickerRef}>
                   <button
                     type="button"
@@ -245,6 +443,20 @@ const TaskRowComponent = ({
                   )}
                 </div>
 
+                <motion.button 
+                  type="button"
+                  whileHover={{ scale: 1.1 }} 
+                  whileTap={{ scale: 0.9 }} 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    taskImageInputRef.current?.click();
+                  }} 
+                  className="p-2 text-zinc-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-all pointer-events-auto cursor-pointer"
+                  title="Ajouter une photo"
+                >
+                  <ImagePlus className="w-4 h-4" />
+                </motion.button>
                 <motion.button 
                   type="button"
                   whileHover={{ scale: 1.1 }} 
@@ -320,6 +532,26 @@ const TaskRowComponent = ({
                 </motion.button>
               </motion.div>
             )}
+
+            <div className="relative shrink-0">
+              <TaskImageThumb
+                taskId={task.id}
+                imageData={task.image_data}
+                alt={task.title || 'Photo de la tâche'}
+                className="w-20 h-20 rounded-xl object-cover border border-zinc-200 shadow-sm"
+                onHasImageChange={setHasThumbnail}
+              />
+              {hoveredId === task.id && hasThumbnail && (
+                <button
+                  type="button"
+                  onClick={handleDeleteTaskThumbnail}
+                  className="absolute -top-2 -right-2 inline-flex items-center justify-center w-6 h-6 rounded-full bg-white border border-zinc-200 text-zinc-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 shadow-sm transition-colors"
+                  title="Supprimer la vignette"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
 
       <AnimatePresence>

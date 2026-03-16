@@ -20,6 +20,13 @@ interface Props {
 const avatarEmojis = ['👤', '👨', '👩', '👨‍💼', '👩‍💼', '👨‍💻', '👩‍💻', '👨‍🔬', '👩‍🔬'];
 
 export default function TaskDetailModal({ task, categories, affaires, onClose, onSave, onArchive }: Props) {
+  const formatLocalDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [title, setTitle] = useState(task?.title || '');
   const [description_md, setDescriptionMd] = useState(task?.description_md || '');
   const [start_date, setStartDate] = useState(task?.start_date ? task.start_date.split('T')[0] : '');
@@ -97,6 +104,30 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
   }, [start_time, start_date]);
 
   useEffect(() => {
+    if (!start_date || !due_date) return;
+    if (due_date > start_date && !isMultiDay) {
+      setIsMultiDay(true);
+    }
+  }, [start_date, due_date, isMultiDay]);
+
+  useEffect(() => {
+    if (!start_date || !start_time || !end_time) return;
+
+    const [startHour, startMinute] = start_time.split(':').map(Number);
+    const [endHour, endMinute] = end_time.split(':').map(Number);
+    const startMinutes = (startHour * 60) + startMinute;
+    const endMinutes = (endHour * 60) + endMinute;
+
+    if (endMinutes < startMinutes && due_date === start_date) {
+      const nextDay = new Date(`${start_date}T00:00:00`);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayStr = formatLocalDate(nextDay);
+      setDueDate(nextDayStr);
+      setIsMultiDay(true);
+    }
+  }, [start_date, due_date, start_time, end_time]);
+
+  useEffect(() => {
     if (!isMultiDay && start_date && due_date !== start_date) {
       setDueDate(start_date);
     }
@@ -154,6 +185,26 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
       
       console.log('🟢 SAVE BUTTON CLICKED');
       setIsSaving(true);
+
+      if (start_date && due_date && due_date < start_date) {
+        setIsSaving(false);
+        alert('La date de fin ne peut pas être avant la date de début.');
+        return;
+      }
+
+      let normalizedDueDate = due_date;
+      if (start_date && due_date && start_time && end_time && due_date === start_date) {
+        const [startHour, startMinute] = start_time.split(':').map(Number);
+        const [endHour, endMinute] = end_time.split(':').map(Number);
+        const startMinutes = (startHour * 60) + startMinute;
+        const endMinutes = (endHour * 60) + endMinute;
+
+        if (endMinutes < startMinutes) {
+          const nextDay = new Date(`${start_date}T00:00:00`);
+          nextDay.setDate(nextDay.getDate() + 1);
+          normalizedDueDate = formatLocalDate(nextDay);
+        }
+      }
       
       const taskTitle = title.trim() || 'Sans titre';
       
@@ -163,7 +214,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
           title: taskTitle,
           description_md,
           start_date: start_date ? `${start_date}T00:00:00.000Z` : null,
-          due_date: due_date ? `${due_date}T00:00:00.000Z` : null,
+          due_date: normalizedDueDate ? `${normalizedDueDate}T00:00:00.000Z` : null,
           start_time: start_time || null,
           end_time: end_time || null,
           priority,
@@ -452,7 +503,13 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
                 <input
                   type="date"
                   value={due_date}
-                  onChange={e => setDueDate(e.target.value)}
+                  onChange={e => {
+                    const nextDueDate = e.target.value;
+                    setDueDate(nextDueDate);
+                    if (start_date && nextDueDate > start_date) {
+                      setIsMultiDay(true);
+                    }
+                  }}
                   className={`bg-transparent border-none focus:outline-none text-zinc-700 font-medium ${
                     !isMultiDay ? 'opacity-50 cursor-not-allowed' : ''
                   }`}

@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"tsx server.ts\" \"vite\"",
-    "dev:server": "tsx server.ts",
+    "dev": "set PORT=5173&& tsx server.ts",
+    "dev:server": "set PORT=5173&& tsx server.ts",
     "dev:vite": "vite",
     "build": "vite build && tsc server.ts --outDir . --module esnext --target es2020 --moduleResolution node --esModuleInterop --skipLibCheck --strict false",
     "start": "node server.js",

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Affaire, Task } from '../types';
-import { Plus, Briefcase, ChevronRight, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Briefcase, Edit2, Trash2, ImagePlus, X } from 'lucide-react';
 
 interface Props {
   affaires: Affaire[];
@@ -12,14 +12,25 @@ interface Props {
   onSelectAffaire: (affaire: Affaire | null) => void;
 }
 
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
 export default function AffairesView({ affaires, tasks, onAddAffaire, onUpdateAffaire, onDeleteAffaire, onSelectAffaire }: Props) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAffaire, setEditingAffaire] = useState<Affaire | null>(null);
-  
+
   const [number, setNumber] = useState('');
   const [name, setName] = useState('');
   const [color, setColor] = useState('#6366f1');
   const [status, setStatus] = useState<'Active' | 'En pause' | 'Clôturée'>('Active');
+  const [imageData, setImageData] = useState<string | null>(null);
+
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const openModal = (affaire?: Affaire) => {
     if (affaire) {
@@ -28,23 +39,38 @@ export default function AffairesView({ affaires, tasks, onAddAffaire, onUpdateAf
       setName(affaire.name);
       setColor(affaire.color);
       setStatus(affaire.status);
+      setImageData(affaire.image_data ?? null);
     } else {
       setEditingAffaire(null);
       setNumber('');
       setName('');
       setColor('#6366f1');
       setStatus('Active');
+      setImageData(null);
     }
     setIsModalOpen(true);
   };
 
+  const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setImageData(dataUrl);
+    } catch {
+      alert('Erreur lors de la lecture de l\'image.');
+    } finally {
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    }
+  };
+
   const handleSave = () => {
     if (!number || !name) return;
-    
+
     if (editingAffaire) {
-      onUpdateAffaire({ ...editingAffaire, number, name, color, status });
+      onUpdateAffaire({ ...editingAffaire, number, name, color, status, image_data: imageData });
     } else {
-      onAddAffaire({ number, name, color, status });
+      onAddAffaire({ number, name, color, status, image_data: imageData });
     }
     setIsModalOpen(false);
   };
@@ -69,15 +95,38 @@ export default function AffairesView({ affaires, tasks, onAddAffaire, onUpdateAf
           const progress = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
 
           return (
-            <motion.div
+      <motion.div
               key={affaire.id}
               layout
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               whileHover={{ y: -4, boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)" }}
-              className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm transition-all cursor-pointer group"
+              className="bg-white rounded-2xl border border-zinc-200 shadow-sm transition-all cursor-pointer group overflow-hidden"
               onClick={() => onSelectAffaire(affaire)}
             >
+              {/* Thumbnail banner */}
+              {affaire.image_data && (
+                <div className="relative h-28 w-full overflow-hidden">
+                  <img
+                    src={affaire.image_data}
+                    alt={affaire.name}
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateAffaire({ ...affaire, image_data: null });
+                    }}
+                    className="absolute top-2 right-2 inline-flex items-center justify-center w-6 h-6 rounded-full bg-white/90 text-zinc-500 hover:text-red-600 hover:bg-red-50 shadow transition-colors opacity-0 group-hover:opacity-100"
+                    title="Supprimer la vignette"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
+              <div className="p-5">
               <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-inner" style={{ backgroundColor: `${affaire.color}20`, color: affaire.color }}>
@@ -112,6 +161,7 @@ export default function AffairesView({ affaires, tasks, onAddAffaire, onUpdateAf
                     {affaire.status}
                   </span>
                 </div>
+              </div>
               </div>
             </motion.div>
           );
@@ -180,6 +230,39 @@ export default function AffairesView({ affaires, tasks, onAddAffaire, onUpdateAf
                   <option value="En pause">En pause</option>
                   <option value="Clôturée">Clôturée</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Vignette / Photo</label>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageSelected}
+                />
+                {imageData ? (
+                  <div className="relative w-full h-32 rounded-xl overflow-hidden border border-zinc-200">
+                    <img src={imageData} alt="Vignette" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setImageData(null)}
+                      className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/90 text-zinc-600 hover:text-red-600 hover:bg-red-50 shadow transition-colors"
+                      title="Supprimer la vignette"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-600 border border-dashed border-zinc-300 rounded-lg hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors w-full justify-center"
+                  >
+                    <ImagePlus className="w-4 h-4" />
+                    Ajouter une photo
+                  </button>
+                )}
               </div>
             </div>
 

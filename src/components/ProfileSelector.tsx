@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Profile } from '../types';
 import { getAPIUrl } from '../utils/api';
-import { Plus, Trash2, RotateCcw, Edit2 } from 'lucide-react';
+import { Plus, Trash2, RotateCcw, Edit2, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface Props {
   profiles: Profile[];
@@ -23,6 +23,13 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [permanentDeleteConfirmId, setPermanentDeleteConfirmId] = useState<number | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<number | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPassword, setImportPassword] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
   const [editName, setEditName] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
   const [editLogo, setEditLogo] = useState('');
@@ -173,6 +180,96 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
     }
   };
 
+  const openImportFile = (file: File) => {
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith('.json') && !lower.endsWith('.jsonbak')) {
+      setImportMessage({ type: 'error', text: 'Format non supporté. Utilisez un fichier .json ou .jsonbak' });
+      setTimeout(() => setImportMessage(null), 5000);
+      return;
+    }
+    setImportFile(file);
+    setImportPassword('');
+    setShowImportModal(true);
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    openImportFile(file);
+    e.target.value = '';
+  };
+
+  const handleDropZoneDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDropZoneDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDropZoneDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) openImportFile(file);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importFile) return;
+    if (importFile.name.toLowerCase().endsWith('.jsonbak') && !importPassword) {
+      setImportMessage({ type: 'error', text: 'Mot de passe requis pour ce fichier chiffré.' });
+      setTimeout(() => setImportMessage(null), 5000);
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const fileContent = await importFile.text();
+      const res = await fetch(getAPIUrl('/backups/import'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileContent,
+          filename: importFile.name,
+          mode: 'profile',
+          noSuffix: true,
+          password: importPassword || null
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Restore comments from backup
+        if (data.comments && typeof data.comments === 'object') {
+          for (const [key, value] of Object.entries(data.comments)) {
+            try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+          }
+        }
+        // Refresh profiles list
+        const profilesRes = await fetch(getAPIUrl('/profiles'));
+        if (profilesRes.ok) {
+          const updated = await profilesRes.json();
+          if (Array.isArray(updated)) {
+            window.dispatchEvent(new CustomEvent('profilesUpdated', { detail: updated }));
+          }
+        }
+        setImportMessage({ type: 'success', text: `Importation réussie — ${data.taskCount} tâches importées. Le profil a été créé.` });
+        setShowImportModal(false);
+        setImportFile(null);
+        setImportPassword('');
+        setTimeout(() => setImportMessage(null), 6000);
+      } else {
+        setImportMessage({ type: 'error', text: data.error || 'Erreur lors de l\'importation.' });
+        setTimeout(() => setImportMessage(null), 6000);
+      }
+    } catch (err: any) {
+      setImportMessage({ type: 'error', text: err?.message || 'Erreur réseau.' });
+      setTimeout(() => setImportMessage(null), 6000);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const activeProfiles = profiles.filter(p => !p.is_archived);
   const archivedProfiles = profiles.filter(p => p.is_archived);
 
@@ -187,6 +284,25 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
           <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">Who's working today?</h1>
           <p className="text-zinc-400">Select your profile to continue</p>
         </div>
+
+        {/* Import message */}
+        <AnimatePresence>
+          {importMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className={`mb-6 p-4 rounded-xl flex items-center gap-3 ${
+                importMessage.type === 'success'
+                  ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
+                  : 'bg-red-900/60 text-red-300 border border-red-700'
+              }`}
+            >
+              {importMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <AlertCircle className="w-5 h-5 shrink-0" />}
+              <p className="text-sm font-medium">{importMessage.text}</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Active Profiles */}
         <div className="flex flex-wrap justify-center gap-8 mb-12">
@@ -268,6 +384,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
               initial={{ opacity: 0, width: 0 }}
               animate={{ opacity: 1, width: 'auto' }}
               onSubmit={handleCreate}
+              autoComplete="off"
               className="flex flex-col items-center gap-4 bg-zinc-800 p-6 rounded-3xl shadow-xl max-w-sm"
             >
               <div className="flex gap-2 mb-2">
@@ -289,6 +406,8 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
                   setName(e.target.value);
                   if (createError) setCreateError(null);
                 }}
+                name="profile-display-name"
+                autoComplete="off"
                 placeholder="Your Name"
                 className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 w-full"
                 autoFocus
@@ -358,6 +477,38 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
           )}
         </div>
 
+        {/* Import backup drop zone */}
+        <div className="mt-6 mb-4">
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".json,.jsonbak"
+            onChange={handleImportFileChange}
+            className="hidden"
+          />
+          <div
+            onDragOver={handleDropZoneDragOver}
+            onDragLeave={handleDropZoneDragLeave}
+            onDrop={handleDropZoneDrop}
+            onClick={() => importFileRef.current?.click()}
+            className={`cursor-pointer border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-3 transition-all ${
+              isDragOver
+                ? 'border-indigo-400 bg-indigo-500/10 scale-[1.01]'
+                : 'border-zinc-700 hover:border-zinc-500 bg-zinc-800/40 hover:bg-zinc-800/70'
+            }`}
+          >
+            <div className={`p-3 rounded-full transition-colors ${ isDragOver ? 'bg-indigo-500/20' : 'bg-zinc-700/50' }`}>
+              <Upload className={`w-6 h-6 ${ isDragOver ? 'text-indigo-400' : 'text-zinc-400' }`} />
+            </div>
+            <div className="text-center">
+              <p className={`font-medium text-sm ${ isDragOver ? 'text-indigo-300' : 'text-zinc-300' }`}>
+                {isDragOver ? 'Déposez le fichier ici' : 'Restaurer depuis une sauvegarde'}
+              </p>
+              <p className="text-xs text-zinc-500 mt-1">Glissez-déposez un fichier .json ou cliquez pour choisir</p>
+            </div>
+          </div>
+        </div>
+
         {/* Archived Profiles */}
         <AnimatePresence>
           {archivedProfiles.length > 0 && (
@@ -405,6 +556,71 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
                   </motion.div>
                 ))}
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Import Backup Modal */}
+        <AnimatePresence>
+          {showImportModal && importFile && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-zinc-800 rounded-xl p-6 max-w-sm w-full shadow-xl border border-zinc-700"
+              >
+                <h3 className="text-lg font-semibold text-white mb-1">Restaurer une sauvegarde</h3>
+                <p className="text-zinc-400 text-sm mb-4">
+                  Les données de <strong className="text-zinc-300">{importFile.name}</strong> seront restaurées. Les profils existants ne seront pas effacés.
+                </p>
+
+                {importFile.name.toLowerCase().endsWith('.jsonbak') && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-zinc-300 mb-1">Mot de passe de déchiffrement</label>
+                    <input
+                      type="password"
+                      value={importPassword}
+                      onChange={e => setImportPassword(e.target.value)}
+                      placeholder="Mot de passe..."
+                      className="w-full bg-zinc-900 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 text-sm"
+                      autoFocus
+                    />
+                  </div>
+                )}
+
+                {importMessage && (
+                  <p className={`text-sm mb-3 ${ importMessage.type === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {importMessage.text}
+                  </p>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setShowImportModal(false); setImportFile(null); setImportPassword(''); }}
+                    disabled={isImporting}
+                    className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={handleConfirmImport}
+                    disabled={isImporting}
+                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors font-medium disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {isImporting ? (
+                      <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Importation...</>
+                    ) : (
+                      'Importer'
+                    )}
+                  </button>
+                </div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>

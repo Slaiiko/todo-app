@@ -4,6 +4,7 @@ import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, ea
 import { fr } from 'date-fns/locale';
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Copy, Trash2, ChevronDown } from 'lucide-react';
+import TaskImageThumb from './TaskImageThumb';
 
 type ViewMode = 'year' | 'month' | 'week';
 
@@ -338,6 +339,12 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                             className="flex-1 min-w-0 flex items-center gap-1.5"
                             onClick={() => onEdit(task)}
                           >
+                            <TaskImageThumb
+                              taskId={task.id}
+                              imageData={task.image_data}
+                              alt={task.title || 'Photo de la tâche'}
+                              className="w-4 h-4 rounded object-cover border border-zinc-200 shrink-0"
+                            />
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getPriorityColor(task.priority)}`} />
                             <span className="truncate">{task.title}</span>
                             {duration && duration > 1 && (
@@ -697,45 +704,17 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
     const getTaskPosition = (task: Task, day: Date) => {
       if (!task.start_time) return null;
       
-      const taskStartDate = task.start_date ? parseISO(task.start_date) : null;
-      const taskEndDate = task.due_date ? parseISO(task.due_date) : null;
-      
       const startMinutes = timeToMinutes(task.start_time);
       const endMinutes = task.end_time ? timeToMinutes(task.end_time) : startMinutes! + 60;
       
       if (startMinutes === null || endMinutes === null) return null;
-      
-      // For multi-day tasks, calculate position based on which day we're on
-      let topPx: number;
-      let heightPx: number;
-      let durationMinutes: number;
-      
-      const isFirstDay = taskStartDate && isSameDay(day, taskStartDate);
-      const isLastDay = taskEndDate && isSameDay(day, taskEndDate);
-      const isMiddleDay = taskStartDate && taskEndDate && day > taskStartDate && day < taskEndDate;
-      
-      if (isFirstDay && !isLastDay) {
-        // First day of multi-day task: start from start_time to 24:00
-        topPx = (startMinutes / 60) * HOUR_HEIGHT;
-        const minutesToEnd = (24 * 60) - startMinutes;
-        heightPx = (minutesToEnd / 60) * HOUR_HEIGHT;
-        durationMinutes = minutesToEnd;
-      } else if (isLastDay && !isFirstDay) {
-        // Last day of multi-day task: 0:00 to end_time
-        topPx = 0;
-        heightPx = (endMinutes / 60) * HOUR_HEIGHT;
-        durationMinutes = endMinutes;
-      } else if (isMiddleDay) {
-        // Middle days: full day
-        topPx = 0;
-        heightPx = 24 * HOUR_HEIGHT;
-        durationMinutes = 24 * 60;
-      } else {
-        // Single day task
-        topPx = (startMinutes / 60) * HOUR_HEIGHT;
-        durationMinutes = endMinutes - startMinutes;
-        heightPx = (durationMinutes / 60) * HOUR_HEIGHT;
-      }
+
+      // Multi-day tasks use the same daily slot on each included day
+      // (ex: 09:00-18:00 every day), instead of a continuous overnight block.
+      const topPx = (startMinutes / 60) * HOUR_HEIGHT;
+      const rawDuration = endMinutes - startMinutes;
+      const durationMinutes = rawDuration > 0 ? rawDuration : 60;
+      const heightPx = (durationMinutes / 60) * HOUR_HEIGHT;
       
       return { topPx, heightPx, durationMinutes, startMinutes, endMinutes };
     };
@@ -853,6 +832,12 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                   onMouseEnter={() => setHoveredTaskId(task.id)}
                   onMouseLeave={() => setHoveredTaskId(null)}
                 >
+                  <TaskImageThumb
+                    taskId={task.id}
+                    imageData={task.image_data}
+                    alt={task.title || 'Photo de la tâche'}
+                    className="w-4 h-4 rounded object-cover border border-zinc-200 shrink-0"
+                  />
                   <span 
                     className="flex-1 min-w-0 truncate"
                     onClick={() => onEdit(task)}
@@ -977,6 +962,12 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                             className="flex items-center gap-1 cursor-pointer group/title"
                             onClick={() => onEdit(task)}
                           >
+                            <TaskImageThumb
+                              taskId={task.id}
+                              imageData={task.image_data}
+                              alt={task.title || 'Photo de la tâche'}
+                              className="w-4 h-4 rounded object-cover border border-zinc-200 shrink-0"
+                            />
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getPriorityColor(task.priority)}`} />
                             {task.subtasks && task.subtasks.length > 0 && (
                               <button
@@ -1002,22 +993,7 @@ export default function CalendarView({ tasks, onEdit, onDateClick, onDelete, onD
                           </div>
                           {task.start_time && task.end_time && position.heightPx > 40 && (
                             <div className="text-xs text-zinc-700 mt-0.5 truncate">
-                              {(() => {
-                                const taskStartDate = task.start_date ? parseISO(task.start_date) : null;
-                                const taskEndDate = task.due_date ? parseISO(task.due_date) : null;
-                                const isFirstDay = taskStartDate && isSameDay(day, taskStartDate);
-                                const isLastDay = taskEndDate && isSameDay(day, taskEndDate);
-                                
-                                if (isFirstDay && !isLastDay) {
-                                  return `${task.start_time} → 24:00`;
-                                } else if (isLastDay && !isFirstDay) {
-                                  return `0:00 → ${task.end_time}`;
-                                } else if (isFirstDay && isLastDay) {
-                                  return `${task.start_time} - ${task.end_time}`;
-                                } else {
-                                  return `0:00 - 24:00`;
-                                }
-                              })()}
+                              {`${task.start_time} - ${task.end_time}`}
                             </div>
                           )}
                           

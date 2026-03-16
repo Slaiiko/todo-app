@@ -165,12 +165,12 @@ export default function App() {
   // Track if we've already checked for overdue tasks on startup
   const hasCheckedOverdueStartup = useRef(false);
 
-  // Calculate cumulative time from subtasks
+  // Calculate cumulative validated time from subtasks (exclude focus time)
   const getCumulativeSubtaskTime = (taskId: number): number => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.subtasks) return 0;
     return task.subtasks.reduce((total, subtask) => {
-      return total + (subtask.time_spent ? Number(subtask.time_spent) : 0);
+      return total + (Number((subtask as any).validation_time_spent || 0) || 0);
     }, 0);
   };
 
@@ -224,12 +224,17 @@ export default function App() {
         setProfiles(safeProfiles);
 
         if (safeProfiles.length > 0) {
-          const savedProfileId = Number(localStorage.getItem('activeProfileId'));
-          const savedProfile = Number.isFinite(savedProfileId)
-            ? safeProfiles.find((p: Profile) => p.id === savedProfileId)
-            : null;
-          const fallbackProfile = safeProfiles.find((p: Profile) => !p.is_archived) || safeProfiles[0];
-          setActiveProfile(savedProfile || fallbackProfile || null);
+          // Always show profile selector — never auto-login
+          setActiveProfile(null);
+        } else {
+          setActiveProfile(null);
+          setTasks([]);
+          setArchivedTasks([]);
+          setTrashedTasks([]);
+          setCategories([]);
+          setAffaires([]);
+          setAppointments([]);
+          localStorage.removeItem('activeProfileId');
         }
       } catch (error) {
         console.error('Failed to load profiles:', error);
@@ -514,19 +519,15 @@ export default function App() {
       .bg-white label,
       .bg-white .text-sm,
       .bg-white > span,
-      [class*="bg-white"] label,
-      [class*="bg-white"] .text-sm,
-      [class*="bg-white"] > span,
       [style*="background: white"] label,
       .modal label,
       .modal .text-sm,
       .modal > span,
       [style*="background-color: rgb(255"] label,
       [style*="background-color: rgb(255"] .text-sm,
-      /* ALL text in white/modal areas */
-      [class*="bg-white"] p,
-      [class*="bg-white"] span,
-      [class*="bg-white"] div,
+      /* Text in true white/modal areas */
+      .bg-white p,
+      .bg-white span,
       .modal p,
       .modal span,
       .modal div {
@@ -604,7 +605,7 @@ export default function App() {
       
       /* Make "Enregistrer" button text much darker/black */
       button[class*="bg-indigo"] {
-        color: #000000 !important;
+        color: inherit !important;
       }
       
       /* Make task title text transparent 50% */
@@ -612,26 +613,37 @@ export default function App() {
         opacity: 0.5 !important;
       }
       
-      /* Settings View - Force ABSOLUTELY ALL text to WHITE */
-      .settings-view-container {
+      /* Settings View - White / Gray palette */
+      .settings-view-container,
+      .settings-view-container h1,
+      .settings-view-container h2,
+      .settings-view-container h3,
+      .settings-view-container h4,
+      .settings-view-container h5,
+      .settings-view-container h6,
+      .settings-view-container .font-bold,
+      .settings-view-container .font-semibold,
+      .settings-view-container .text-white {
         color: #ffffff !important;
       }
-      
-      /* Force white on EVERY single element */
-      .settings-view-container * {
-        color: #ffffff !important;
+
+      .settings-view-container p,
+      .settings-view-container label,
+      .settings-view-container span,
+      .settings-view-container .text-sm,
+      .settings-view-container .text-xs,
+      .settings-view-container .text-gray-300,
+      .settings-view-container .text-gray-400 {
+        color: #d1d5db !important;
       }
-      
-      /* Override inline styles and computed colors */
-      .settings-view-container[style] {
-        color: #ffffff !important;
+
+      .settings-view-container input,
+      .settings-view-container textarea,
+      .settings-view-container select {
+        color: #e5e7eb !important;
       }
-      
-      .settings-view-container *[style] {
-        color: #ffffff !important;
-      }
-      
-      /* Override all SVG text */
+
+      /* Keep icons readable */
       .settings-view-container svg,
       .settings-view-container svg * {
         color: #ffffff !important;
@@ -657,45 +669,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Force white text in Settings View
-  useEffect(() => {
-    const forceWhiteTextInSettings = () => {
-      const settingsContainer = document.querySelector('.settings-view-container');
-      if (!settingsContainer) return;
-
-      // Get all elements in settings
-      const allElements = settingsContainer.querySelectorAll('*');
-      allElements.forEach((el: Element) => {
-        const htmlEl = el as HTMLElement;
-        // Skip input fields with hex color placeholder
-        if (htmlEl instanceof HTMLInputElement && htmlEl.placeholder === '#000000') {
-          return;
-        }
-        // Force white text on all elements
-        htmlEl.style.color = '#ffffff';
-      });
-    };
-
-    // Initial call
-    forceWhiteTextInSettings();
-
-    // Use MutationObserver to watch for new elements being added
-    const observer = new MutationObserver(() => {
-      forceWhiteTextInSettings();
-    });
-
-    const settingsContainer = document.querySelector('.settings-view-container');
-    if (settingsContainer) {
-      observer.observe(settingsContainer, {
-        childList: true,
-        subtree: true,
-        attributes: true
-      });
-    }
-
-    return () => observer.disconnect();
-  }, [viewMode]);
-
   useEffect(() => {
     const handleTaskMoved = () => {
       console.log('taskMoved event received, activeProfile:', activeProfile);
@@ -709,6 +682,11 @@ export default function App() {
   }, [activeProfile]);
 
   const handleAddAlert = (taskId: number, taskTitle: string, subtaskId?: number, subtaskTitle?: string) => {
+    if (taskId <= 0) {
+      alert('Les rappels de validation ne sont disponibles que pour les tâches.');
+      return;
+    }
+
     // Check if alert already exists for this task/subtask
     const alertExists = alerts.some(a => 
       a.taskId === taskId && a.subtaskId === subtaskId
@@ -759,12 +737,28 @@ export default function App() {
     try {
       console.log('🟢 handleValidateWithTime START - timeSpent:', timeSpent);
       if (validationModal.subtaskId) {
+        const parentTask = tasks.find((task) => task.id === validationModal.taskId);
+        const currentSubtaskTime = Number(
+          parentTask?.subtasks?.find((subtask) => subtask.id === validationModal.subtaskId)?.time_spent || 0
+        ) || 0;
+        const currentSubtaskValidationTime = Number(
+          (parentTask?.subtasks?.find((subtask) => subtask.id === validationModal.subtaskId) as any)?.validation_time_spent || 0
+        ) || 0;
+        const validationDelta = Math.max(0, Number(timeSpent) || 0);
+        const mergedSubtaskValidationTime = currentSubtaskValidationTime + validationDelta;
+        const mergedSubtaskTime = currentSubtaskTime + validationDelta;
+
         // Complete subtask with time
         console.log('📋 Completing SUBTASK', validationModal.subtaskId, 'with time:', timeSpent);
         const response = await fetch(getAPIUrl(`/subtasks/${validationModal.subtaskId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_complete: true, time_spent: timeSpent, completed_at: new Date().toISOString() })
+          body: JSON.stringify({
+            is_complete: true,
+            time_spent: mergedSubtaskTime,
+            validation_time_spent: mergedSubtaskValidationTime,
+            completed_at: new Date().toISOString()
+          })
         });
         console.log('✅ Subtask response status:', response.status);
         if (!response.ok) {
@@ -779,13 +773,32 @@ export default function App() {
         setTimeSpent(0);
         setValidationOption('none');
         console.log('✅ Subtask completed successfully');
+      } else if (validationModal.taskId < 0) {
+        const appointmentId = Math.abs(validationModal.taskId);
+        await validateAppointmentAsTask(appointmentId, timeSpent);
+        await fetchData();
+        setValidationModal({ isOpen: false, taskId: 0, taskTitle: '' });
+        setTimeSpent(0);
+        setValidationOption('none');
+        console.log('✅ Appointment validated successfully as task');
       } else {
+        const currentTaskTime = Number(tasks.find((task) => task.id === validationModal.taskId)?.time_spent || 0) || 0;
+        const currentTaskValidationTime = Number((tasks.find((task) => task.id === validationModal.taskId) as any)?.validation_time_spent || 0) || 0;
+        const validationDelta = Math.max(0, Number(timeSpent) || 0);
+        const mergedTaskValidationTime = currentTaskValidationTime + validationDelta;
+        const mergedTaskTime = currentTaskTime + validationDelta;
+
         // Complete task with time
         console.log('📝 Completing TASK', validationModal.taskId, 'with time:', timeSpent);
         const response = await fetch(getAPIUrl(`/tasks/${validationModal.taskId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_complete: true, time_spent: timeSpent, completed_at: new Date().toISOString() })
+          body: JSON.stringify({
+            is_complete: true,
+            time_spent: mergedTaskTime,
+            validation_time_spent: mergedTaskValidationTime,
+            completed_at: new Date().toISOString()
+          })
         });
         console.log('✅ Task response status:', response.status);
         if (!response.ok) {
@@ -835,6 +848,14 @@ export default function App() {
         setTimeSpent(0);
         setValidationOption('none');
         console.log('✅ Subtask completed successfully');
+      } else if (validationModal.taskId < 0) {
+        const appointmentId = Math.abs(validationModal.taskId);
+        await validateAppointmentAsTask(appointmentId, 0);
+        await fetchData();
+        setValidationModal({ isOpen: false, taskId: 0, taskTitle: '' });
+        setTimeSpent(0);
+        setValidationOption('none');
+        console.log('✅ Appointment validated successfully as task');
       } else {
         // Complete task without time
         console.log('📝 Completing TASK', validationModal.taskId, 'without time');
@@ -870,12 +891,31 @@ export default function App() {
   const handleValidateWithCumulatedTime = async () => {
     try {
       console.log('🟢 handleValidateWithCumulatedTime START');
+      if (validationModal.taskId < 0) {
+        const appointmentId = Math.abs(validationModal.taskId);
+        await validateAppointmentAsTask(appointmentId, 0);
+        await fetchData();
+        setValidationModal({ isOpen: false, taskId: 0, taskTitle: '' });
+        setTimeSpent(0);
+        setValidationOption('none');
+        console.log('✅ Appointment validated successfully as task');
+        return;
+      }
       const cumulatedTime = getCumulativeSubtaskTime(validationModal.taskId);
+      const currentTaskTime = Number(tasks.find((task) => task.id === validationModal.taskId)?.time_spent || 0) || 0;
+      const currentTaskValidationTime = Number((tasks.find((task) => task.id === validationModal.taskId) as any)?.validation_time_spent || 0) || 0;
+      const mergedTaskValidationTime = currentTaskValidationTime + Math.max(0, Number(cumulatedTime) || 0);
+      const mergedTaskTime = currentTaskTime + Math.max(0, Number(cumulatedTime) || 0);
       console.log('📝 Completing TASK', validationModal.taskId, 'with cumulated time:', cumulatedTime);
       const response = await fetch(getAPIUrl(`/tasks/${validationModal.taskId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_complete: true, time_spent: cumulatedTime, completed_at: new Date().toISOString() })
+        body: JSON.stringify({
+          is_complete: true,
+          time_spent: mergedTaskTime,
+          validation_time_spent: mergedTaskValidationTime,
+          completed_at: new Date().toISOString()
+        })
       });
       console.log('✅ Task response status:', response.status);
       if (!response.ok) {
@@ -974,6 +1014,23 @@ export default function App() {
     }
   };
 
+  const parseLocalDateOnly = (value: string | null | undefined, fallback: Date): Date => {
+    if (!value) return new Date(fallback);
+    const datePart = value.split('T')[0];
+    const [year, month, day] = datePart.split('-').map(Number);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return new Date(fallback);
+    }
+    return new Date(year, month - 1, day, 12, 0, 0, 0);
+  };
+
+  const toLocalDateString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Helper function to generate recurring task occurrences
   const generateRecurringTaskOccurrences = (task: Task): Task[] => {
     if (!task.recurrence_type) return [task];
@@ -985,23 +1042,23 @@ export default function App() {
     const endDate = new Date(today);
     endDate.setMonth(endDate.getMonth() + 3); // 3 months ahead
     
-    const startDate = task.start_date ? new Date(task.start_date) : new Date(task.due_date || today);
-    startDate.setHours(0, 0, 0, 0);
+    const startDate = parseLocalDateOnly(task.start_date || task.due_date, today);
+    startDate.setHours(12, 0, 0, 0);
     
-    const taskStartDayOfWeek = startDate.getUTCDay();
-    const taskStartDateOfMonth = startDate.getUTCDate();
-    const taskStartMonth = startDate.getUTCMonth();
+    const taskStartDayOfWeek = startDate.getDay();
+    const taskStartDateOfMonth = startDate.getDate();
+    const taskStartMonth = startDate.getMonth();
     
     let currentDate = new Date(startDate);
     
     while (currentDate <= endDate) {
       let shouldInclude = false;
-      const dayOfWeek = currentDate.getUTCDay();
+      const dayOfWeek = currentDate.getDay();
       
       // Skip weekends (0=Sunday, 6=Saturday) for daily/weekly recurrence
       if (task.recurrence_type === 'daily' || task.recurrence_type === 'weekly') {
         if (dayOfWeek === 0 || dayOfWeek === 6) {
-          currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+          currentDate.setDate(currentDate.getDate() + 1);
           continue;
         }
       }
@@ -1014,34 +1071,34 @@ export default function App() {
           shouldInclude = dayOfWeek === taskStartDayOfWeek;
           break;
         case 'monthly':
-          shouldInclude = currentDate.getUTCDate() === taskStartDateOfMonth;
+          shouldInclude = currentDate.getDate() === taskStartDateOfMonth;
           break;
         case 'yearly':
-          shouldInclude = currentDate.getUTCMonth() === taskStartMonth && currentDate.getUTCDate() === taskStartDateOfMonth;
+          shouldInclude = currentDate.getMonth() === taskStartMonth && currentDate.getDate() === taskStartDateOfMonth;
           break;
       }
       
       if (shouldInclude && currentDate >= startDate) {
         if (task.recurrence_end_date) {
-          const recurrenceEnd = new Date(task.recurrence_end_date);
+          const recurrenceEnd = parseLocalDateOnly(task.recurrence_end_date, endDate);
           recurrenceEnd.setHours(23, 59, 59, 999);
           if (currentDate > recurrenceEnd) {
             break;
           }
         }
         
-        const dateStr = currentDate.toISOString().split('T')[0];
+        const dateStr = toLocalDateString(currentDate);
         occurrences.push({
           ...task,
-          start_date: `${dateStr}T00:00:00.000Z`,
-          due_date: `${dateStr}T00:00:00.000Z`,
+          start_date: dateStr,
+          due_date: dateStr,
           _isRecurringOccurrence: true,
           _parentTaskId: task.id,
           _occurrenceIndex: occurrences.length + 1
         });
       }
       
-      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
     return occurrences;
@@ -1058,22 +1115,22 @@ export default function App() {
     const endDate = new Date(today);
     endDate.setMonth(endDate.getMonth() + 3);
     
-    const startDate = task.start_date ? new Date(task.start_date) : new Date(task.due_date || today);
-    startDate.setHours(0, 0, 0, 0);
+    const startDate = parseLocalDateOnly(task.start_date || task.due_date, today);
+    startDate.setHours(12, 0, 0, 0);
     
-    const taskStartDayOfWeek = startDate.getUTCDay();
-    const taskStartDateOfMonth = startDate.getUTCDate();
-    const taskStartMonth = startDate.getUTCMonth();
+    const taskStartDayOfWeek = startDate.getDay();
+    const taskStartDateOfMonth = startDate.getDate();
+    const taskStartMonth = startDate.getMonth();
     
     let currentDate = new Date(startDate);
     
     while (currentDate <= endDate) {
       let shouldInclude = false;
-      const dayOfWeek = currentDate.getUTCDay();
+      const dayOfWeek = currentDate.getDay();
       
       if (task.recurrence_type === 'daily' || task.recurrence_type === 'weekly') {
         if (dayOfWeek === 0 || dayOfWeek === 6) {
-          currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+          currentDate.setDate(currentDate.getDate() + 1);
           continue;
         }
       }
@@ -1086,16 +1143,16 @@ export default function App() {
           shouldInclude = dayOfWeek === taskStartDayOfWeek;
           break;
         case 'monthly':
-          shouldInclude = currentDate.getUTCDate() === taskStartDateOfMonth;
+          shouldInclude = currentDate.getDate() === taskStartDateOfMonth;
           break;
         case 'yearly':
-          shouldInclude = currentDate.getUTCMonth() === taskStartMonth && currentDate.getUTCDate() === taskStartDateOfMonth;
+          shouldInclude = currentDate.getMonth() === taskStartMonth && currentDate.getDate() === taskStartDateOfMonth;
           break;
       }
       
       if (shouldInclude && currentDate >= startDate) {
         if (task.recurrence_end_date) {
-          const recurrenceEnd = new Date(task.recurrence_end_date);
+          const recurrenceEnd = parseLocalDateOnly(task.recurrence_end_date, endDate);
           recurrenceEnd.setHours(23, 59, 59, 999);
           if (currentDate > recurrenceEnd) {
             break;
@@ -1104,7 +1161,7 @@ export default function App() {
         count++;
       }
       
-      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
     return count;
@@ -1131,16 +1188,16 @@ export default function App() {
     }
     
     const startTime = new Date(apt.start_time);
-    const aptStartDayOfWeek = startTime.getUTCDay();
-    const aptStartDateOfMonth = startTime.getUTCDate();
-    const aptStartMonth = startTime.getUTCMonth();
+    const aptStartDayOfWeek = startTime.getDay();
+    const aptStartDateOfMonth = startTime.getDate();
+    const aptStartMonth = startTime.getMonth();
     
-    let currentDate = new Date(apt.start_time);
-    currentDate.setHours(0, 0, 0, 0);
+    let currentDate = parseLocalDateOnly(apt.start_time, today);
+    currentDate.setHours(12, 0, 0, 0);
     
     while (currentDate <= endDate) {
       let shouldInclude = false;
-      const dayOfWeek = currentDate.getUTCDay();
+      const dayOfWeek = currentDate.getDay();
       
       // Skip weekends (0=Sunday, 6=Saturday) for daily/weekly recurrence
       if (apt.recurrence_type === 'daily' || apt.recurrence_type === 'weekly') {
@@ -1158,10 +1215,10 @@ export default function App() {
           shouldInclude = dayOfWeek === aptStartDayOfWeek;
           break;
         case 'monthly':
-          shouldInclude = currentDate.getUTCDate() === aptStartDateOfMonth;
+          shouldInclude = currentDate.getDate() === aptStartDateOfMonth;
           break;
         case 'yearly':
-          shouldInclude = currentDate.getUTCMonth() === aptStartMonth && currentDate.getUTCDate() === aptStartDateOfMonth;
+          shouldInclude = currentDate.getMonth() === aptStartMonth && currentDate.getDate() === aptStartDateOfMonth;
           break;
       }
       
@@ -1169,7 +1226,7 @@ export default function App() {
         count++;
       }
       
-      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
     return count;
@@ -1193,21 +1250,21 @@ export default function App() {
     const endHour = String(endTime.getHours()).padStart(2, '0');
     const endMinute = String(endTime.getMinutes()).padStart(2, '0');
     
-    const aptStartDayOfWeek = startTime.getUTCDay();
-    const aptStartDateOfMonth = startTime.getUTCDate();
-    const aptStartMonth = startTime.getUTCMonth();
+    const aptStartDayOfWeek = startTime.getDay();
+    const aptStartDateOfMonth = startTime.getDate();
+    const aptStartMonth = startTime.getMonth();
     
-    let currentDate = new Date(apt.start_time);
-    currentDate.setHours(0, 0, 0, 0);
+    let currentDate = parseLocalDateOnly(apt.start_time, today);
+    currentDate.setHours(12, 0, 0, 0);
     
     while (currentDate <= endDate) {
       let shouldInclude = false;
-      const dayOfWeek = currentDate.getUTCDay();
+      const dayOfWeek = currentDate.getDay();
       
       // Skip weekends (0=Sunday, 6=Saturday) for daily/weekly recurrence
       if (apt.recurrence_type === 'daily' || apt.recurrence_type === 'weekly') {
         if (dayOfWeek === 0 || dayOfWeek === 6) {
-          currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+          currentDate.setDate(currentDate.getDate() + 1);
           continue;
         }
       }
@@ -1220,10 +1277,10 @@ export default function App() {
           shouldInclude = dayOfWeek === aptStartDayOfWeek;
           break;
         case 'monthly':
-          shouldInclude = currentDate.getUTCDate() === aptStartDateOfMonth;
+          shouldInclude = currentDate.getDate() === aptStartDateOfMonth;
           break;
         case 'yearly':
-          shouldInclude = currentDate.getUTCMonth() === aptStartMonth && currentDate.getUTCDate() === aptStartDateOfMonth;
+          shouldInclude = currentDate.getMonth() === aptStartMonth && currentDate.getDate() === aptStartDateOfMonth;
           break;
       }
       
@@ -1236,7 +1293,7 @@ export default function App() {
           }
         }
         
-        const dateStr = currentDate.toISOString().split('T')[0];
+        const dateStr = toLocalDateString(currentDate);
         occurrences.push({
           ...apt,
           start_time: `${dateStr}T${startHour}:${startMinute}:00`,
@@ -1244,7 +1301,7 @@ export default function App() {
         } as Appointment);
       }
       
-      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
     return occurrences;
@@ -1305,7 +1362,9 @@ export default function App() {
 
   // Get tasks with recurring appointments expanded for calendar view
   const getCalendarTasks = (): (Task & { _isAppointment?: boolean; _appointmentId?: number })[] => {
-    let taskList = [...tasks].flatMap(task => {
+    let taskList = [...tasks]
+      .filter(task => !task.is_complete)
+      .flatMap(task => {
       // Expand recurring tasks to all occurrences for calendar view
       if (task.recurrence_type) {
         return generateRecurringTaskOccurrences(task);
@@ -1515,6 +1574,68 @@ export default function App() {
     } catch (error) {
       console.error('❌ CRITICAL ERROR in handleTaskSave:', error);
       throw error; // Propagate error to handleSave
+    }
+  };
+
+  const validateAppointmentAsTask = async (appointmentId: number, minutesSpent: number) => {
+    if (!activeProfile) throw new Error('Aucun profil actif');
+
+    const appointment = appointments.find(a => a.id === appointmentId);
+    if (!appointment) {
+      throw new Error('Rendez-vous introuvable');
+    }
+
+    const createTaskPayload = {
+      profile_id: activeProfile.id,
+      title: appointment.title,
+      description_md: appointment.description || '',
+      start_date: appointment.start_time || null,
+      due_date: appointment.end_time || appointment.start_time || null,
+      priority: 'Medium',
+      category_id: null,
+      affaire_id: appointment.affaire_id || null,
+      kanban_column: 'To Do'
+    };
+
+    const createTaskResponse = await fetch(getAPIUrl('/tasks'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(createTaskPayload)
+    });
+
+    if (!createTaskResponse.ok) {
+      const errorText = await createTaskResponse.text();
+      throw new Error(`Création de tâche échouée: HTTP ${createTaskResponse.status} - ${errorText}`);
+    }
+
+    const createdTask = await createTaskResponse.json();
+    const createdTaskId = Number(createdTask?.id);
+    if (!Number.isFinite(createdTaskId)) {
+      throw new Error('ID de tâche invalide après validation du rendez-vous');
+    }
+
+    const completeTaskResponse = await fetch(getAPIUrl(`/tasks/${createdTaskId}`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        is_complete: true,
+        time_spent: Math.max(0, Number(minutesSpent) || 0),
+        completed_at: new Date().toISOString()
+      })
+    });
+
+    if (!completeTaskResponse.ok) {
+      const errorText = await completeTaskResponse.text();
+      throw new Error(`Finalisation de tâche échouée: HTTP ${completeTaskResponse.status} - ${errorText}`);
+    }
+
+    const deleteAppointmentResponse = await fetch(getAPIUrl(`/appointments/${appointmentId}`), {
+      method: 'DELETE'
+    });
+
+    if (!deleteAppointmentResponse.ok) {
+      const errorText = await deleteAppointmentResponse.text();
+      throw new Error(`Suppression du rendez-vous échouée: HTTP ${deleteAppointmentResponse.status} - ${errorText}`);
     }
   };
 
@@ -1802,18 +1923,26 @@ export default function App() {
 
       if (selectedAppointment?.id) {
         // Update existing appointment
-        await fetch(getAPIUrl(`/appointments/${selectedAppointment.id}`), {
+        const response = await fetch(getAPIUrl(`/appointments/${selectedAppointment.id}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
       } else {
         // Create new appointment
-        await fetch(getAPIUrl('/appointments'), {
+        const response = await fetch(getAPIUrl('/appointments'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
       }
 
       // Note: No task is created. Recurring appointments are displayed directly in the list
@@ -1936,7 +2065,7 @@ export default function App() {
               onClick={() => setIsFocusMode(true)}
               className="px-4 py-2 text-sm font-medium text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 transition-colors shadow-sm"
             >
-              🍅 Mode Focus
+              🚀 Mode Focus
             </motion.button>
             <motion.button 
               whileHover={{ scale: 1.03, filter: "brightness(1.1)", boxShadow: "0 4px 12px rgba(168, 85, 247, 0.3)" }}
@@ -2231,7 +2360,7 @@ export default function App() {
                       Utiliser le temps cumulé
                     </div>
                     <div className="text-sm text-zinc-600 mt-1">
-                      {Math.floor(getCumulativeSubtaskTime(validationModal.taskId) / 60)}h {getCumulativeSubtaskTime(validationModal.taskId) % 60}min (temps des sous-tâches)
+                      {Math.floor(getCumulativeSubtaskTime(validationModal.taskId) / 60)}h {getCumulativeSubtaskTime(validationModal.taskId) % 60}min (temps validé des sous-tâches)
                     </div>
                   </button>
                 )}

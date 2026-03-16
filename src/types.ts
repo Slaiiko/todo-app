@@ -27,6 +27,7 @@ export interface Affaire {
   color: string;
   status: 'Active' | 'En pause' | 'Clôturée';
   created_at: string;
+  image_data?: string | null;
 }
 
 export interface Subtask {
@@ -41,7 +42,10 @@ export interface Subtask {
   created_at?: string;
   due_date?: string | null;
   time_spent?: number; // in minutes
+  focus_time_spent?: number; // in minutes, logged from focus mode
+  validation_time_spent?: number; // in minutes, logged from validation flow
   completed_at?: string;
+  documents?: DocumentAttachment[];
 }
 
 export interface TaskAssignee {
@@ -84,6 +88,11 @@ export interface Task {
   created_at?: string;
   completed_at?: string;
   time_spent?: number; // in minutes
+  subtasks_time_spent?: number; // cumulative time from subtasks, separate from task time
+  focus_time_spent?: number; // in minutes, logged from focus mode
+  validation_time_spent?: number; // in minutes, logged from validation flow
+  image_data?: string | null;
+  documents?: DocumentAttachment[];
   bg_color?: string; // background color for task
   recurrence_type?: 'daily' | 'weekly' | 'monthly' | 'yearly' | null; // Recurrence pattern
   recurrence_end_date?: string | null; // ISO 8601 date when recurrence ends
@@ -122,5 +131,15 @@ export interface Appointment {
   participants: AppointmentParticipant[];
   created_at: string;
   updated_at: string;
+}
+
+export interface DocumentAttachment {
+  id: number;
+  entity_type: 'task' | 'subtask';
+  entity_id: number;
+  file_name: string;
+  mime_type?: string | null;
+  data_url: string;
+  created_at?: string;
 }
 

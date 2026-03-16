@@ -4,6 +4,8 @@ import { Archive, RotateCcw, Download, Clock, ChevronDown, Briefcase, Folder, Us
 import { useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import EntityDocuments from './EntityDocuments';
+import TaskImageThumb from './TaskImageThumb';
 
 interface Props {
   tasks: Task[];
@@ -62,6 +64,11 @@ export default function ArchiveView({ tasks, onRestore, onExport }: Props) {
             const completedSubtasks = task.subtasks?.filter(s => s.is_complete) || [];
             const hasSubtasks = completedSubtasks.length > 0;
             const isExpanded = expandedTasks.has(task.id);
+            const taskTotalTime = Number(task.time_spent || 0) || 0;
+            const taskFocusTime = Number((task as any).focus_time_spent || 0) || 0;
+            const taskValidationTime = Number((task as any).validation_time_spent || 0) || 0;
+            const knownTaskTime = taskFocusTime + taskValidationTime;
+            const taskLegacyTime = taskTotalTime > knownTaskTime ? taskTotalTime - knownTaskTime : 0;
             
             return (
               <motion.div
@@ -77,28 +84,59 @@ export default function ArchiveView({ tasks, onRestore, onExport }: Props) {
                   className="flex items-center justify-between p-4 bg-white rounded-2xl shadow-sm border border-zinc-200"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-lg text-zinc-900 truncate">{task.title}</h3>
-                      <button
-                        onClick={() => toggleExpanded(task.id)}
-                        className="shrink-0 p-1 text-zinc-400 hover:text-indigo-600 transition-colors"
-                        title={isExpanded ? "Masquer détails" : "Voir détails"}
-                      >
-                        <ChevronDown 
-                          className={`w-5 h-5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-                    </div>
+                    <div className="flex items-start gap-3">
+                      <TaskImageThumb
+                        taskId={task.id}
+                        imageData={task.image_data}
+                        alt={task.title || 'Photo de la tâche'}
+                        className="w-16 h-16 rounded-xl object-cover border border-zinc-200 shadow-sm shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium text-lg text-zinc-900 truncate">{task.title}</h3>
+                        <button
+                          onClick={() => toggleExpanded(task.id)}
+                          className="shrink-0 p-1 text-zinc-400 hover:text-indigo-600 transition-colors"
+                          title={isExpanded ? "Masquer détails" : "Voir détails"}
+                        >
+                          <ChevronDown 
+                            className={`w-5 h-5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                          />
+                        </button>
+                      </div>
                     <p className="text-sm text-zinc-500 mt-1">
                       Archivée • {task.category_name || 'Aucune catégorie'}
                       {hasSubtasks && ` • ${completedSubtasks.length} sous-tâche${completedSubtasks.length > 1 ? 's' : ''}`}
                     </p>
-                    {task.time_spent != null && Number(task.time_spent) > 0 && (
-                      <div className="flex items-center gap-1 text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded-lg mt-2 w-fit">
-                        <Clock className="w-3 h-3" />
-                        {Math.floor(Number(task.time_spent) / 60)}h {Number(task.time_spent) % 60}min
+                    <div className="flex items-center flex-wrap gap-2 mt-2">
+                      {taskFocusTime > 0 && (
+                        <div className="flex items-center gap-1 text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded-lg w-fit">
+                          <Clock className="w-3 h-3" />
+                          Focus · {Math.floor(taskFocusTime / 60)}h {taskFocusTime % 60}min
+                        </div>
+                      )}
+                      {taskValidationTime > 0 && (
+                        <div className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg w-fit">
+                          <Clock className="w-3 h-3" />
+                          Validation · {Math.floor(taskValidationTime / 60)}h {taskValidationTime % 60}min
+                        </div>
+                      )}
+                      {taskLegacyTime > 0 && (
+                        <div className="flex items-center gap-1 text-xs font-medium text-zinc-700 bg-zinc-100 px-2 py-1 rounded-lg w-fit">
+                          <Clock className="w-3 h-3" />
+                          Temps · {Math.floor(taskLegacyTime / 60)}h {taskLegacyTime % 60}min
+                        </div>
+                      )}
+                      {task.subtasks_time_spent != null && Number(task.subtasks_time_spent) > 0 && (
+                        <div className="flex items-center gap-1 text-xs font-medium text-fuchsia-700 bg-fuchsia-50 px-2 py-1 rounded-lg w-fit">
+                          <Clock className="w-3 h-3" />
+                          Sous-tâches · {Math.floor(Number(task.subtasks_time_spent) / 60)}h {Number(task.subtasks_time_spent) % 60}min
+                        </div>
+                      )}
+                    </div>
+                    <EntityDocuments entityType="task" entityId={task.id} readOnly />
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   <div className="shrink-0 flex items-center gap-2">
@@ -203,7 +241,14 @@ export default function ArchiveView({ tasks, onRestore, onExport }: Props) {
                         className="space-y-2 pl-4"
                       >
                         <h4 className="text-sm font-semibold text-zinc-700 mb-2">Sous-tâches:</h4>
-                        {completedSubtasks.map(subtask => (
+                        {completedSubtasks.map(subtask => {
+                          const subtaskTotalTime = Number(subtask.time_spent || 0) || 0;
+                          const subtaskFocusTime = Number((subtask as any).focus_time_spent || 0) || 0;
+                          const subtaskValidationTime = Number((subtask as any).validation_time_spent || 0) || 0;
+                          const knownSubtaskTime = subtaskFocusTime + subtaskValidationTime;
+                          const subtaskLegacyTime = subtaskTotalTime > knownSubtaskTime ? subtaskTotalTime - knownSubtaskTime : 0;
+
+                          return (
                           <motion.div
                             key={subtask.id}
                             initial={{ opacity: 0, x: -10 }}
@@ -220,15 +265,30 @@ export default function ArchiveView({ tasks, onRestore, onExport }: Props) {
                               {subtask.assignee_name && (
                                 <p className="text-xs text-zinc-600 mt-0.5">Assignée à: <span className="font-medium">{subtask.assignee_name}</span></p>
                               )}
-                              {subtask.time_spent != null && Number(subtask.time_spent) > 0 && (
-                                <div className="flex items-center gap-1 text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded-lg mt-1.5 w-fit">
-                                  <Clock className="w-3 h-3" />
-                                  {Math.floor(Number(subtask.time_spent) / 60)}h {Number(subtask.time_spent) % 60}min
-                                </div>
-                              )}
+                              <div className="flex items-center flex-wrap gap-2 mt-1.5">
+                                {subtaskFocusTime > 0 && (
+                                  <div className="flex items-center gap-1 text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded-lg w-fit">
+                                    <Clock className="w-3 h-3" />
+                                    Focus · {Math.floor(subtaskFocusTime / 60)}h {subtaskFocusTime % 60}min
+                                  </div>
+                                )}
+                                {subtaskValidationTime > 0 && (
+                                  <div className="flex items-center gap-1 text-xs font-medium text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg w-fit">
+                                    <Clock className="w-3 h-3" />
+                                    Validation · {Math.floor(subtaskValidationTime / 60)}h {subtaskValidationTime % 60}min
+                                  </div>
+                                )}
+                                {subtaskLegacyTime > 0 && (
+                                  <div className="flex items-center gap-1 text-xs font-medium text-zinc-700 bg-zinc-100 px-2 py-1 rounded-lg w-fit">
+                                    <Clock className="w-3 h-3" />
+                                    Temps · {Math.floor(subtaskLegacyTime / 60)}h {subtaskLegacyTime % 60}min
+                                  </div>
+                                )}
+                              </div>
+                              <EntityDocuments entityType="subtask" entityId={subtask.id} readOnly compact />
                             </div>
                           </motion.div>
-                        ))}
+                        );})}
                       </motion.div>
                     )}
                   </motion.div>
