@@ -1,6 +1,6 @@
 import { Task, Subtask } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, Circle, Clock, Trash2, Edit2, Briefcase, MessageCircle, ChevronDown, Plus, AlertCircle, Palette, Copy, ImagePlus } from 'lucide-react';
+import { CheckCircle2, Circle, Clock, Trash2, Edit2, Briefcase, MessageCircle, ChevronDown, Plus, AlertCircle, Palette, Copy, ImagePlus, X, Pencil, Check } from 'lucide-react';
 import { format, isPast, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { memo, useState, useEffect, useRef } from 'react';
@@ -52,11 +52,36 @@ const TaskRowComponent = ({
   currentUserName,
 }: TaskRowProps) => {
   const [showAddFormOnExpand, setShowAddFormOnExpand] = useState(false);
+  const [showCommentsPanel, setShowCommentsPanel] = useState(false);
+  const [taskCommentsLocal, setTaskCommentsLocal] = useState<any[]>([]);
+  const [newTaskComment, setNewTaskComment] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
   const [selectedColor, setSelectedColor] = useState(task.bg_color || '#ffffff');
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [hasThumbnail, setHasThumbnail] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
   const taskImageInputRef = useRef<HTMLInputElement>(null);
+
+  const appointmentId = Number((task as any)._appointmentId || 0);
+  const isAppointmentEntry = Boolean((task as any)._isAppointment && appointmentId > 0);
+  const commentStorageKey = isAppointmentEntry
+    ? `appointment-${appointmentId}-comments`
+    : `task-${task.id}-comments`;
+
+  const loadTaskComments = () => {
+    try {
+      const saved = localStorage.getItem(commentStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setTaskCommentsLocal(Array.isArray(parsed) ? parsed : []);
+      } else {
+        setTaskCommentsLocal([]);
+      }
+    } catch {
+      setTaskCommentsLocal([]);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -72,6 +97,10 @@ const TaskRowComponent = ({
       };
     }
   }, [showColorPicker]);
+
+  useEffect(() => {
+    loadTaskComments();
+  }, [commentStorageKey]);
 
   const handleColorChange = async (color: string) => {
     setSelectedColor(color);
@@ -215,7 +244,10 @@ const TaskRowComponent = ({
   const completedSubtasks = task.subtasks?.filter(s => s.is_complete).length || 0;
   const totalSubtasks = task.subtasks?.length || 0;
   const progressPercent = totalSubtasks > 0 ? (completedSubtasks / totalSubtasks) * 100 : 0;
-  const taskComments = commentsMap[`task-${task.id}`] || [];
+  const taskCommentsCandidate = taskCommentsLocal.length > 0
+    ? taskCommentsLocal
+    : (commentsMap[commentStorageKey] || []);
+  const taskComments = Array.isArray(taskCommentsCandidate) ? taskCommentsCandidate : [];
   const isDeleting = deletingId === task.id;
   const isExpanded = expandedTaskIds.has(task.id);
   const directTaskTime = Number(task.time_spent || 0) || 0;
@@ -231,6 +263,49 @@ const TaskRowComponent = ({
   const subtasksValidationTime = subtasksList.reduce((total, subtask) => total + (Number((subtask as any).validation_time_spent || 0) || 0), 0);
   const subtasksKnownTime = subtasksFocusTime + subtasksValidationTime;
   const subtasksLegacyTime = subtasksTotalTime > subtasksKnownTime ? subtasksTotalTime - subtasksKnownTime : 0;
+
+  const handleAddTaskComment = () => {
+    const text = newTaskComment.trim();
+    if (!text) return;
+
+    const comment = {
+      id: Date.now(),
+      text,
+      author: currentUserName || 'Anonyme',
+      created_at: new Date().toISOString(),
+      entity_type: isAppointmentEntry ? 'appointment' : 'task',
+      entity_id: isAppointmentEntry ? appointmentId : task.id,
+    };
+
+    const updated = [...taskComments, comment];
+    setTaskCommentsLocal(updated);
+    localStorage.setItem(commentStorageKey, JSON.stringify(updated));
+    setNewTaskComment('');
+  };
+
+  const handleDeleteTaskComment = (commentId: number) => {
+    const updated = taskComments.filter((comment) => Number((comment as any)?.id) !== Number(commentId));
+    setTaskCommentsLocal(updated);
+    localStorage.setItem(commentStorageKey, JSON.stringify(updated));
+  };
+
+  const handleStartEditComment = (comment: any) => {
+    setEditingCommentId(Number(comment?.id));
+    setEditingCommentText(String(comment?.text || ''));
+  };
+
+  const handleSaveEditComment = (commentId: number) => {
+    if (!editingCommentText.trim()) return;
+    const updated = taskComments.map((comment) =>
+      Number((comment as any)?.id) === commentId
+        ? { ...comment, text: editingCommentText.trim(), updated_at: new Date().toISOString() }
+        : comment
+    );
+    setTaskCommentsLocal(updated);
+    localStorage.setItem(commentStorageKey, JSON.stringify(updated));
+    setEditingCommentId(null);
+    setEditingCommentText('');
+  };
 
   // Reset showAddFormOnExpand after 100ms to allow SubtaskList to capture it
   useEffect(() => {
@@ -501,6 +576,20 @@ const TaskRowComponent = ({
                 >
                   <AlertCircle className="w-4 h-4" />
                 </motion.button>
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowCommentsPanel((current) => !current);
+                  }}
+                  className="p-2 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all pointer-events-auto cursor-pointer"
+                  title={showCommentsPanel ? 'Masquer commentaires' : 'Afficher commentaires'}
+                >
+                  <MessageCircle className="w-4 h-4" />
+                </motion.button>
                 {onDuplicate && (
                   <motion.button 
                     type="button"
@@ -555,6 +644,103 @@ const TaskRowComponent = ({
           </div>
 
       <AnimatePresence>
+        {showCommentsPanel && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="border-t border-zinc-100 bg-zinc-50/50 p-4 mt-3 -mx-4 overflow-hidden"
+          >
+            <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 text-zinc-700 text-sm font-semibold">
+                <MessageCircle className="w-4 h-4" />
+                {isAppointmentEntry ? 'Commentaires du rendez-vous' : 'Commentaires de la tâche'}
+              </div>
+
+              {taskComments.length === 0 ? (
+                <p className="text-sm text-zinc-500">Aucun commentaire.</p>
+              ) : (
+                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                  {taskComments.map((comment, index) => {
+                    const cId = Number((comment as any)?.id ?? 0);
+                    const isEditing = editingCommentId === cId;
+                    return (
+                      <div key={cId || `${commentStorageKey}-${index}`} className="group/comment bg-white border border-zinc-200 rounded-lg p-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-semibold text-zinc-500 mb-1">{String((comment as any)?.author || 'Anonyme')}</p>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editingCommentText}
+                                onChange={(e) => setEditingCommentText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.preventDefault(); handleSaveEditComment(cId); }
+                                  if (e.key === 'Escape') { setEditingCommentId(null); setEditingCommentText(''); }
+                                }}
+                                autoFocus
+                                className="w-full bg-zinc-50 border border-indigo-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            ) : (
+                              <p className="text-sm text-zinc-700 break-words">{String((comment as any)?.text || '')}</p>
+                            )}
+                            {(comment as any)?.updated_at && !isEditing && (
+                              <p className="text-[10px] text-zinc-400 mt-0.5">modifié</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isEditing ? (
+                              <button type="button" onClick={() => handleSaveEditComment(cId)} className="p-1 text-indigo-500 hover:text-indigo-700 rounded" title="Enregistrer">
+                                <Check className="w-3 h-3" />
+                              </button>
+                            ) : (
+                              <button type="button" onClick={() => handleStartEditComment(comment)} className="p-1 text-zinc-300 hover:text-indigo-500 rounded opacity-0 group-hover/comment:opacity-100 transition-opacity" title="Modifier">
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTaskComment(cId)}
+                              className="p-1 text-zinc-300 hover:text-red-600 rounded opacity-0 group-hover/comment:opacity-100 transition-opacity"
+                              title="Supprimer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newTaskComment}
+                  onChange={(e) => setNewTaskComment(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddTaskComment();
+                    }
+                  }}
+                  placeholder="Ajouter un commentaire..."
+                  className="flex-1 bg-white border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTaskComment}
+                  disabled={!newTaskComment.trim()}
+                  className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
         {isExpanded && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}

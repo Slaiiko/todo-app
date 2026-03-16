@@ -22,6 +22,7 @@ import AffairesView from './components/AffairesView';
 import SettingsView from './components/SettingsView';
 import { Plus, AlertCircle, X, CheckCircle2, Clock, Calendar } from 'lucide-react';
 import BackupManager from './components/BackupManager';
+import ChatWindow from './components/ChatWindow';
 
 // Color utility functions
 function hexToRGB(hex: string): { r: number; g: number; b: number } {
@@ -144,6 +145,7 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#6366f1');
   const [stats, setStats] = useState({ completedToday: 0, pomodorosToday: 0 });
@@ -2021,6 +2023,7 @@ export default function App() {
         affaires={affaires}
         customLabels={activeProfile?.custom_labels}
         onSwitchProfile={() => setActiveProfile(null)}
+        onOpenChat={() => setIsChatOpen(true)}
         onSettings={() => setIsSettingsOpen(true)}
         onSelectAffaire={(affaireId) => {
           setSelectedAffaireFilter(affaireId);
@@ -2121,7 +2124,7 @@ export default function App() {
                   selectedAffaireFilter={selectedAffaireFilter}
                   categories={categories}
                   affaires={affaires}
-                  currentUserName={activeProfile?.username}
+                  currentUserName={activeProfile?.name}
                 />
               )}
               {viewMode === 'kanban' && (
@@ -2220,6 +2223,14 @@ export default function App() {
 
       {/* Modals & Overlays */}
       <AnimatePresence>
+        {isChatOpen && (
+          <ChatWindow
+            isOpen={isChatOpen}
+            currentProfile={activeProfile}
+            profiles={profiles}
+            onClose={() => setIsChatOpen(false)}
+          />
+        )}
         {isTaskModalOpen && (
           <TaskDetailModal 
             task={selectedTask} 
@@ -2228,6 +2239,7 @@ export default function App() {
             onClose={() => setIsTaskModalOpen(false)} 
             onSave={handleTaskSave}
             onArchive={handleTaskArchive}
+            activeProfileName={activeProfile?.name}
           />
         )}
         {isAppointmentModalOpen && (

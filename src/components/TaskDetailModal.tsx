@@ -15,11 +15,12 @@ interface Props {
   onClose: () => void;
   onSave: (data: { task: Partial<Task>; subtasks: Subtask[]; assignees: TaskAssignee[] }) => void;
   onArchive?: (taskId: number) => void;
+  activeProfileName?: string;
 }
 
 const avatarEmojis = ['👤', '👨', '👩', '👨‍💼', '👩‍💼', '👨‍💻', '👩‍💻', '👨‍🔬', '👩‍🔬'];
 
-export default function TaskDetailModal({ task, categories, affaires, onClose, onSave, onArchive }: Props) {
+export default function TaskDetailModal({ task, categories, affaires, onClose, onSave, onArchive, activeProfileName }: Props) {
   const formatLocalDate = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -784,7 +785,7 @@ export default function TaskDetailModal({ task, categories, affaires, onClose, o
               <CommentSection 
                 entityType="task" 
                 entityId={task.id} 
-                currentUser={{ name: 'Vous', avatar: '👤' }}
+                currentUser={{ name: activeProfileName || 'Anonyme', avatar: '👤' }}
               />
             </>
           )}

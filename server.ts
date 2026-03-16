@@ -210,6 +210,7 @@ db.exec(`
     is_archived BOOLEAN DEFAULT 0,
     is_deleted BOOLEAN DEFAULT 0,
     bg_color TEXT DEFAULT NULL,
+    image_data TEXT DEFAULT NULL,
     time_spent INTEGER DEFAULT 0,
     subtasks_time_spent INTEGER DEFAULT 0,
     focus_time_spent INTEGER DEFAULT 0,
@@ -312,6 +313,20 @@ db.exec(`
     data_url TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_profile_id INTEGER NOT NULL,
+    recipient_profile_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(sender_profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+    FOREIGN KEY(recipient_profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_chat_sender_recipient_time ON chat_messages(sender_profile_id, recipient_profile_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_chat_recipient_read ON chat_messages(recipient_profile_id, is_read, created_at);
 `);
 
 // Backfill legacy time into validation bucket when new columns are still empty
@@ -605,6 +620,162 @@ async function startServer() {
     } catch (error) {
       console.error('Error deleting profile:', error);
       res.status(500).json({ error: 'Failed to delete profile' });
+    }
+  });
+
+  // Chat (inter-profile messaging)
+  app.get("/api/chat/conversations/:profileId", (req, res) => {
+    try {
+      const profileId = Number(req.params.profileId);
+      if (!Number.isFinite(profileId) || profileId <= 0) {
+        return res.status(400).json({ error: 'Invalid profile id' });
+      }
+
+      const self = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId) as any;
+      if (!self) {
+        return res.status(404).json({ error: 'Profile not found' });
+      }
+
+      const peers = db.prepare(`
+        SELECT id, name, avatar, logo, is_archived
+        FROM profiles
+        WHERE id != ? AND COALESCE(is_archived, 0) = 0
+        ORDER BY name COLLATE NOCASE ASC
+      `).all(profileId) as any[];
+
+      const getLastMessage = db.prepare(`
+        SELECT id, sender_profile_id, recipient_profile_id, content, created_at
+        FROM chat_messages
+        WHERE (sender_profile_id = ? AND recipient_profile_id = ?)
+           OR (sender_profile_id = ? AND recipient_profile_id = ?)
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 1
+      `);
+
+      const getUnreadCount = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM chat_messages
+        WHERE sender_profile_id = ?
+          AND recipient_profile_id = ?
+          AND COALESCE(is_read, 0) = 0
+      `);
+
+      const conversations = peers.map((peer) => {
+        const last = getLastMessage.get(profileId, peer.id, peer.id, profileId) as any;
+        const unread = getUnreadCount.get(peer.id, profileId) as any;
+        return {
+          profile: peer,
+          last_message: last?.content || null,
+          last_message_at: last?.created_at || null,
+          unread_count: Number(unread?.count || 0)
+        };
+      }).sort((a, b) => {
+        if (!a.last_message_at && !b.last_message_at) return a.profile.name.localeCompare(b.profile.name);
+        if (!a.last_message_at) return 1;
+        if (!b.last_message_at) return -1;
+        return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+      });
+
+      res.json(conversations);
+    } catch (error: any) {
+      console.error('Failed to fetch conversations:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch conversations' });
+    }
+  });
+
+  app.get("/api/chat/messages", (req, res) => {
+    try {
+      const profileA = Number(req.query.profileA);
+      const profileB = Number(req.query.profileB);
+
+      if (!Number.isFinite(profileA) || profileA <= 0 || !Number.isFinite(profileB) || profileB <= 0) {
+        return res.status(400).json({ error: 'Invalid profile ids' });
+      }
+
+      const rows = db.prepare(`
+        SELECT id, sender_profile_id, recipient_profile_id, content, is_read, created_at
+        FROM chat_messages
+        WHERE (sender_profile_id = ? AND recipient_profile_id = ?)
+           OR (sender_profile_id = ? AND recipient_profile_id = ?)
+        ORDER BY datetime(created_at) ASC, id ASC
+      `).all(profileA, profileB, profileB, profileA);
+
+      db.prepare(`
+        UPDATE chat_messages
+        SET is_read = 1
+        WHERE sender_profile_id = ?
+          AND recipient_profile_id = ?
+          AND COALESCE(is_read, 0) = 0
+      `).run(profileB, profileA);
+
+      res.json(rows);
+    } catch (error: any) {
+      console.error('Failed to fetch chat messages:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch messages' });
+    }
+  });
+
+  app.post("/api/chat/messages", (req, res) => {
+    try {
+      const senderProfileId = Number(req.body.sender_profile_id);
+      const recipientProfileId = Number(req.body.recipient_profile_id);
+      const content = String(req.body.content || '').trim();
+
+      if (!Number.isFinite(senderProfileId) || senderProfileId <= 0 || !Number.isFinite(recipientProfileId) || recipientProfileId <= 0) {
+        return res.status(400).json({ error: 'Invalid profile ids' });
+      }
+
+      if (senderProfileId === recipientProfileId) {
+        return res.status(400).json({ error: 'Cannot send message to the same profile' });
+      }
+
+      if (!content) {
+        return res.status(400).json({ error: 'Message content is required' });
+      }
+
+      const sender = db.prepare("SELECT id FROM profiles WHERE id = ?").get(senderProfileId) as any;
+      const recipient = db.prepare("SELECT id FROM profiles WHERE id = ?").get(recipientProfileId) as any;
+      if (!sender || !recipient) {
+        return res.status(404).json({ error: 'Profile not found' });
+      }
+
+      const info = db.prepare(`
+        INSERT INTO chat_messages (sender_profile_id, recipient_profile_id, content, is_read)
+        VALUES (?, ?, ?, 0)
+      `).run(senderProfileId, recipientProfileId, content);
+
+      const message = db.prepare(`
+        SELECT id, sender_profile_id, recipient_profile_id, content, is_read, created_at
+        FROM chat_messages
+        WHERE id = ?
+      `).get(info.lastInsertRowid);
+
+      res.json(message);
+    } catch (error: any) {
+      console.error('Failed to send chat message:', error);
+      res.status(500).json({ error: error.message || 'Failed to send message' });
+    }
+  });
+
+  app.delete("/api/chat/messages", (req, res) => {
+    try {
+      const profileA = Number(req.query.profileA);
+      const profileB = Number(req.query.profileB);
+
+      if (!Number.isFinite(profileA) || profileA <= 0 || !Number.isFinite(profileB) || profileB <= 0) {
+        return res.status(400).json({ error: 'Invalid profile ids' });
+      }
+
+      db.prepare(`
+        DELETE FROM chat_messages
+        WHERE (sender_profile_id = ? AND recipient_profile_id = ?)
+           OR (sender_profile_id = ? AND recipient_profile_id = ?)
+      `).run(profileA, profileB, profileB, profileA);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Failed to delete conversation:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete conversation' });
     }
   });
 
