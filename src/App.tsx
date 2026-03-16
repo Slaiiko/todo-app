@@ -2176,32 +2176,32 @@ export default function App() {
   };
 
   const layoutSwitch = (
-    <div className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 p-1 shadow-sm backdrop-blur-sm">
+    <div className={`inline-flex items-center rounded-xl border border-white/20 bg-white/10 shadow-sm backdrop-blur-sm ${isMobileLayout ? 'p-0.5' : 'p-1'}`}>
       <button
         type="button"
         onClick={() => setLayoutMode('desktop')}
         aria-label="Vue Ordinateur"
         title="Vue Ordinateur"
-        className={`inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+        className={`inline-flex items-center justify-center rounded-lg ${isMobileLayout ? 'p-1.5' : 'px-3 py-2'} text-xs font-semibold transition-all ${
           layoutMode === 'desktop'
             ? 'bg-white text-zinc-900 shadow-sm'
             : 'text-white/80 hover:bg-white/10 hover:text-white'
         }`}
       >
-        <Monitor className="h-4 w-4" />
+        <Monitor className={isMobileLayout ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
       </button>
       <button
         type="button"
         onClick={() => setLayoutMode('mobile')}
         aria-label="Vue Mobile"
         title="Vue Mobile"
-        className={`inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+        className={`inline-flex items-center justify-center rounded-lg ${isMobileLayout ? 'p-1.5' : 'px-3 py-2'} text-xs font-semibold transition-all ${
           layoutMode === 'mobile'
             ? 'bg-white text-zinc-900 shadow-sm'
             : 'text-white/80 hover:bg-white/10 hover:text-white'
         }`}
       >
-        <Smartphone className="h-4 w-4" />
+        <Smartphone className={isMobileLayout ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
       </button>
     </div>
   );
@@ -2239,7 +2239,7 @@ export default function App() {
   );
 
   return (
-    <div id="app-container" className="relative flex h-screen bg-zinc-50 text-zinc-900 font-sans overflow-hidden">
+    <div id="app-container" className={`relative flex h-screen bg-zinc-50 text-zinc-900 font-sans overflow-hidden${isMobileLayout ? ' mobile-layout' : ''}`}>
       {!isMobileLayout && (
         <Sidebar 
           profile={activeProfile} 
@@ -2362,28 +2362,34 @@ export default function App() {
       </AnimatePresence>
       
       <main id="main-content" className="flex-1 flex flex-col relative overflow-hidden">
-        <header id="header-content" className={`${isMobileLayout ? 'min-h-16 px-3 py-3' : 'h-16 px-8'} border-b border-zinc-200 shrink-0 relative z-10`}>
+        <header id="header-content" className={`${isMobileLayout ? 'h-14 px-2' : 'h-16 px-8'} border-b border-zinc-200 shrink-0 relative z-10 flex items-center`}>
           {isMobileLayout ? (
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsMobileSidebarOpen(true)}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white shadow-sm backdrop-blur-sm"
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
-                <div className="min-w-0 flex-1">
-                  <h1 className="truncate text-lg font-semibold capitalize">
-                    {getHeaderTitle()}
-                  </h1>
-                  <div className="truncate text-xs text-white/70">{activeProfile.name}</div>
-                </div>
+            <div className="flex w-full items-center gap-1.5 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="shrink-0 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+              <span className="min-w-0 shrink truncate text-xs font-semibold text-white max-w-[70px]">{getHeaderTitle()}</span>
+              <div className="shrink-0">{layoutSwitch}</div>
+              <div className="flex items-center gap-1 shrink-0 ml-auto">
+                <motion.button whileTap={{ scale: 0.95 }} onClick={() => setIsFocusMode(true)}
+                  className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-amber-700 bg-amber-100 rounded-md">
+                  <span>🚀</span>
+                </motion.button>
+                <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setSelectedAppointment(null); setIsAppointmentModalOpen(true); }}
+                  className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-md">
+                  <Calendar className="w-3 h-3" />
+                  <span>RDV</span>
+                </motion.button>
+                <motion.button whileTap={{ scale: 0.95 }} onClick={() => { setSelectedTask(null); setIsTaskModalOpen(true); }}
+                  className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-md">
+                  <Plus className="w-3 h-3" />
+                  <span>Tâche</span>
+                </motion.button>
               </div>
-              <div className="overflow-x-auto pb-1">
-                <div className="w-max min-w-full">{layoutSwitch}</div>
-              </div>
-              {primaryActions}
             </div>
           ) : (
             <div className="flex h-full items-center justify-between gap-4">
@@ -2410,7 +2416,8 @@ export default function App() {
             >
               {viewMode === 'list' && (
                 <TaskList 
-                  tasks={getDisplayedTasks()} 
+                  tasks={getDisplayedTasks()}
+                  isMobileLayout={isMobileLayout}
                   onEdit={(t: any) => { 
                     if (t._isAppointment) {
                       // Open appointment modal for editing
@@ -2539,6 +2546,7 @@ export default function App() {
             currentProfile={activeProfile}
             profiles={profiles}
             onClose={() => setIsChatOpen(false)}
+            isMobileLayout={isMobileLayout}
           />
         )}
         {isTaskModalOpen && (

@@ -7,8 +7,29 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 const PORT = Number(process.env.PORT || 3000);
 const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(PROJECT_ROOT, "todo_app.db");
-const BACKUP_DIR = path.join(PROJECT_ROOT, "backups");
+const resolveWritableDataRoot = () => {
+    const candidates = [
+        process.env.RENDER_DISK_MOUNT_PATH,
+        process.env.DATA_DIR,
+        process.env.NODE_ENV === 'production' ? '/var/data' : undefined,
+        PROJECT_ROOT,
+    ].filter((value) => Boolean(value));
+    for (const candidate of candidates) {
+        try {
+            fs.mkdirSync(candidate, { recursive: true });
+            fs.accessSync(candidate, fs.constants.R_OK | fs.constants.W_OK);
+            return candidate;
+        }
+        catch (error) {
+            console.warn(`Data directory unavailable: ${candidate}`);
+        }
+    }
+    return PROJECT_ROOT;
+};
+const DATA_ROOT = resolveWritableDataRoot();
+const DB_PATH = path.join(DATA_ROOT, "todo_app.db");
+const BACKUP_DIR = path.join(DATA_ROOT, "backups");
+console.log("Using data root:", DATA_ROOT);
 console.log("Using database:", DB_PATH);
 if (!fs.existsSync(BACKUP_DIR)) {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -49,6 +70,12 @@ catch (e) {
 }
 try {
     db.exec(`ALTER TABLE subtasks ADD COLUMN validation_time_spent INTEGER DEFAULT 0`);
+}
+catch (e) {
+    // Column might already exist
+}
+try {
+    db.exec(`ALTER TABLE subtasks ADD COLUMN order_index INTEGER DEFAULT 0`);
 }
 catch (e) {
     // Column might already exist
@@ -204,6 +231,7 @@ db.exec(`
     is_archived BOOLEAN DEFAULT 0,
     is_deleted BOOLEAN DEFAULT 0,
     bg_color TEXT DEFAULT NULL,
+    image_data TEXT DEFAULT NULL,
     time_spent INTEGER DEFAULT 0,
     subtasks_time_spent INTEGER DEFAULT 0,
     focus_time_spent INTEGER DEFAULT 0,
@@ -225,6 +253,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER,
     parent_subtask_id INTEGER,
+    order_index INTEGER DEFAULT 0,
     title TEXT NOT NULL,
     is_complete BOOLEAN DEFAULT 0,
     time_spent INTEGER DEFAULT 0,
@@ -306,6 +335,20 @@ db.exec(`
     data_url TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_profile_id INTEGER NOT NULL,
+    recipient_profile_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(sender_profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+    FOREIGN KEY(recipient_profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_chat_sender_recipient_time ON chat_messages(sender_profile_id, recipient_profile_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_chat_recipient_read ON chat_messages(recipient_profile_id, is_read, created_at);
 `);
 // Backfill legacy time into validation bucket when new columns are still empty
 try {
@@ -547,6 +590,145 @@ async function startServer() {
             res.status(500).json({ error: 'Failed to delete profile' });
         }
     });
+    // Chat (inter-profile messaging)
+    app.get("/api/chat/conversations/:profileId", (req, res) => {
+        try {
+            const profileId = Number(req.params.profileId);
+            if (!Number.isFinite(profileId) || profileId <= 0) {
+                return res.status(400).json({ error: 'Invalid profile id' });
+            }
+            const self = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId);
+            if (!self) {
+                return res.status(404).json({ error: 'Profile not found' });
+            }
+            const peers = db.prepare(`
+        SELECT id, name, avatar, logo, is_archived
+        FROM profiles
+        WHERE id != ? AND COALESCE(is_archived, 0) = 0
+        ORDER BY name COLLATE NOCASE ASC
+      `).all(profileId);
+            const getLastMessage = db.prepare(`
+        SELECT id, sender_profile_id, recipient_profile_id, content, created_at
+        FROM chat_messages
+        WHERE (sender_profile_id = ? AND recipient_profile_id = ?)
+           OR (sender_profile_id = ? AND recipient_profile_id = ?)
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 1
+      `);
+            const getUnreadCount = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM chat_messages
+        WHERE sender_profile_id = ?
+          AND recipient_profile_id = ?
+          AND COALESCE(is_read, 0) = 0
+      `);
+            const conversations = peers.map((peer) => {
+                const last = getLastMessage.get(profileId, peer.id, peer.id, profileId);
+                const unread = getUnreadCount.get(peer.id, profileId);
+                return {
+                    profile: peer,
+                    last_message: last?.content || null,
+                    last_message_at: last?.created_at || null,
+                    unread_count: Number(unread?.count || 0)
+                };
+            }).sort((a, b) => {
+                if (!a.last_message_at && !b.last_message_at)
+                    return a.profile.name.localeCompare(b.profile.name);
+                if (!a.last_message_at)
+                    return 1;
+                if (!b.last_message_at)
+                    return -1;
+                return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+            });
+            res.json(conversations);
+        }
+        catch (error) {
+            console.error('Failed to fetch conversations:', error);
+            res.status(500).json({ error: error.message || 'Failed to fetch conversations' });
+        }
+    });
+    app.get("/api/chat/messages", (req, res) => {
+        try {
+            const profileA = Number(req.query.profileA);
+            const profileB = Number(req.query.profileB);
+            if (!Number.isFinite(profileA) || profileA <= 0 || !Number.isFinite(profileB) || profileB <= 0) {
+                return res.status(400).json({ error: 'Invalid profile ids' });
+            }
+            const rows = db.prepare(`
+        SELECT id, sender_profile_id, recipient_profile_id, content, is_read, created_at
+        FROM chat_messages
+        WHERE (sender_profile_id = ? AND recipient_profile_id = ?)
+           OR (sender_profile_id = ? AND recipient_profile_id = ?)
+        ORDER BY datetime(created_at) ASC, id ASC
+      `).all(profileA, profileB, profileB, profileA);
+            db.prepare(`
+        UPDATE chat_messages
+        SET is_read = 1
+        WHERE sender_profile_id = ?
+          AND recipient_profile_id = ?
+          AND COALESCE(is_read, 0) = 0
+      `).run(profileB, profileA);
+            res.json(rows);
+        }
+        catch (error) {
+            console.error('Failed to fetch chat messages:', error);
+            res.status(500).json({ error: error.message || 'Failed to fetch messages' });
+        }
+    });
+    app.post("/api/chat/messages", (req, res) => {
+        try {
+            const senderProfileId = Number(req.body.sender_profile_id);
+            const recipientProfileId = Number(req.body.recipient_profile_id);
+            const content = String(req.body.content || '').trim();
+            if (!Number.isFinite(senderProfileId) || senderProfileId <= 0 || !Number.isFinite(recipientProfileId) || recipientProfileId <= 0) {
+                return res.status(400).json({ error: 'Invalid profile ids' });
+            }
+            if (senderProfileId === recipientProfileId) {
+                return res.status(400).json({ error: 'Cannot send message to the same profile' });
+            }
+            if (!content) {
+                return res.status(400).json({ error: 'Message content is required' });
+            }
+            const sender = db.prepare("SELECT id FROM profiles WHERE id = ?").get(senderProfileId);
+            const recipient = db.prepare("SELECT id FROM profiles WHERE id = ?").get(recipientProfileId);
+            if (!sender || !recipient) {
+                return res.status(404).json({ error: 'Profile not found' });
+            }
+            const info = db.prepare(`
+        INSERT INTO chat_messages (sender_profile_id, recipient_profile_id, content, is_read)
+        VALUES (?, ?, ?, 0)
+      `).run(senderProfileId, recipientProfileId, content);
+            const message = db.prepare(`
+        SELECT id, sender_profile_id, recipient_profile_id, content, is_read, created_at
+        FROM chat_messages
+        WHERE id = ?
+      `).get(info.lastInsertRowid);
+            res.json(message);
+        }
+        catch (error) {
+            console.error('Failed to send chat message:', error);
+            res.status(500).json({ error: error.message || 'Failed to send message' });
+        }
+    });
+    app.delete("/api/chat/messages", (req, res) => {
+        try {
+            const profileA = Number(req.query.profileA);
+            const profileB = Number(req.query.profileB);
+            if (!Number.isFinite(profileA) || profileA <= 0 || !Number.isFinite(profileB) || profileB <= 0) {
+                return res.status(400).json({ error: 'Invalid profile ids' });
+            }
+            db.prepare(`
+        DELETE FROM chat_messages
+        WHERE (sender_profile_id = ? AND recipient_profile_id = ?)
+           OR (sender_profile_id = ? AND recipient_profile_id = ?)
+      `).run(profileA, profileB, profileB, profileA);
+            res.json({ success: true });
+        }
+        catch (error) {
+            console.error('Failed to delete conversation:', error);
+            res.status(500).json({ error: error.message || 'Failed to delete conversation' });
+        }
+    });
     // Categories
     app.get("/api/categories/:profileId", (req, res) => {
         const categories = db.prepare("SELECT * FROM categories WHERE profile_id = ?").all(req.params.profileId);
@@ -599,7 +781,7 @@ async function startServer() {
     `).all(req.params.profileId);
         // Fetch subtasks and assignees for each task
         const tasksWithSubtasks = tasks.map((task) => {
-            const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ?").all(task.id);
+            const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY COALESCE(parent_subtask_id, 0) ASC, order_index ASC, id ASC").all(task.id);
             const assignees = db.prepare("SELECT * FROM task_assignees WHERE task_id = ? ORDER BY created_at ASC").all(task.id);
             return { ...task, subtasks, assignees };
         });
@@ -615,7 +797,7 @@ async function startServer() {
       ORDER BY t.completed_at DESC, t.updated_at DESC
     `).all(req.params.profileId);
         const tasksWithSubtasks = tasks.map((task) => {
-            const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ?").all(task.id);
+            const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY COALESCE(parent_subtask_id, 0) ASC, order_index ASC, id ASC").all(task.id);
             const assignees = db.prepare("SELECT * FROM task_assignees WHERE task_id = ? ORDER BY created_at ASC").all(task.id);
             return { ...task, subtasks, assignees };
         });
@@ -631,7 +813,7 @@ async function startServer() {
       ORDER BY t.created_at DESC
     `).all(req.params.profileId);
         const tasksWithSubtasks = tasks.map((task) => {
-            const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ?").all(task.id);
+            const subtasks = db.prepare("SELECT * FROM subtasks WHERE task_id = ? ORDER BY COALESCE(parent_subtask_id, 0) ASC, order_index ASC, id ASC").all(task.id);
             const assignees = db.prepare("SELECT * FROM task_assignees WHERE task_id = ? ORDER BY created_at ASC").all(task.id);
             return { ...task, subtasks, assignees };
         });
@@ -787,20 +969,23 @@ async function startServer() {
         const { task_id, title } = req.body;
         const rawParentSubtaskId = req.body.parent_subtask_id ?? req.body.parentSubtaskId ?? null;
         const normalizedParentSubtaskId = rawParentSubtaskId == null ? null : Number(rawParentSubtaskId);
-        const stmt = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, title) VALUES (?, ?, ?)");
-        const info = stmt.run(task_id, normalizedParentSubtaskId, title);
+        const nextOrderRow = db.prepare("SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM subtasks WHERE task_id = ? AND COALESCE(parent_subtask_id, 0) = COALESCE(?, 0)").get(task_id, normalizedParentSubtaskId);
+        const nextOrder = Number(nextOrderRow?.next_order ?? 0) || 0;
+        const stmt = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, order_index, title) VALUES (?, ?, ?, ?)");
+        const info = stmt.run(task_id, normalizedParentSubtaskId, nextOrder, title);
         recalculateTaskTimeFromCompletedSubtasks(Number(task_id));
         res.json({
             id: info.lastInsertRowid,
             task_id,
             parent_subtask_id: normalizedParentSubtaskId,
             parentSubtaskId: normalizedParentSubtaskId,
+            order_index: nextOrder,
             title,
             is_complete: 0
         });
     });
     app.put("/api/subtasks/:id", (req, res) => {
-        const { is_complete, title, time_spent, focus_time_spent, validation_time_spent, completed_at } = req.body;
+        const { is_complete, title, time_spent, focus_time_spent, validation_time_spent, completed_at, order_index } = req.body;
         const subtask = db.prepare("SELECT * FROM subtasks WHERE id = ?").get(req.params.id);
         if (!subtask) {
             return res.status(404).json({ error: 'Subtask not found' });
@@ -844,6 +1029,10 @@ async function startServer() {
         if (resolvedParentSubtaskId !== undefined) {
             updates.push("parent_subtask_id = ?");
             params.push(resolvedParentSubtaskId == null ? null : Number(resolvedParentSubtaskId));
+        }
+        if (order_index !== undefined) {
+            updates.push("order_index = ?");
+            params.push(Number(order_index) || 0);
         }
         if (updates.length > 0) {
             query += updates.join(", ") + " WHERE id = ?";

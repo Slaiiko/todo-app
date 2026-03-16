@@ -23,6 +23,7 @@ interface Props {
   parentSubtaskId?: number | null;
   level?: number;
   numberPrefix?: string;
+  isMobileLayout?: boolean;
 }
 
 export default function SubtaskList({ 
@@ -40,7 +41,8 @@ export default function SubtaskList({
   currentUserName,
   parentSubtaskId = null,
   level = 0,
-  numberPrefix = ''
+  numberPrefix = '',
+  isMobileLayout = false
 }: Props) {
   const getSubtaskId = (subtask: Subtask): number | null => {
     const rawId = (subtask as any).id;
@@ -529,7 +531,7 @@ export default function SubtaskList({
               <div className="flex items-center gap-1.5 shrink-0 pointer-events-auto">
                 <div 
                   className={`flex items-center gap-1.5 transition-opacity ${
-                    hoveredId === subtask.id ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                    (isMobileLayout || hoveredId === subtask.id) ? 'opacity-100' : 'opacity-0 pointer-events-none'
                   }`}
                 >
                 <motion.button
@@ -873,6 +875,7 @@ export default function SubtaskList({
               parentSubtaskId={subtaskId}
               level={level + 1}
               numberPrefix={hierarchyNumber}
+              isMobileLayout={isMobileLayout}
             />
           )}
         </motion.div>

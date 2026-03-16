@@ -10,6 +10,18 @@ body, html {
   min-height: 100vh;
 }
 
+/* Mobile layout: always show buttons that are normally hover-only */
+.mobile-layout .group-hover\:opacity-100 {
+  opacity: 1 !important;
+}
+.mobile-layout .group-hover\/comment\:opacity-100 {
+  opacity: 1 !important;
+}
+.mobile-layout .pointer-events-none.opacity-0 {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
 @layer utilities {
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;

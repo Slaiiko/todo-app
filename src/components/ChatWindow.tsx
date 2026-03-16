@@ -25,11 +25,13 @@ interface Props {
   currentProfile: Profile;
   profiles: Profile[];
   onClose: () => void;
+  isMobileLayout?: boolean;
 }
 
-export default function ChatWindow({ isOpen, currentProfile, profiles, onClose }: Props) {
+export default function ChatWindow({ isOpen, currentProfile, profiles, onClose, isMobileLayout = false }: Props) {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -174,8 +176,8 @@ export default function ChatWindow({ isOpen, currentProfile, profiles, onClose }
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={onClose}
+          className={`fixed inset-0 z-50 flex items-center justify-center ${isMobileLayout ? '' : 'bg-black/50 p-4'}`}
+          onClick={isMobileLayout ? undefined : onClose}
         >
           <motion.div
             initial={{ opacity: 0, y: 16, scale: 0.98 }}
@@ -183,9 +185,16 @@ export default function ChatWindow({ isOpen, currentProfile, profiles, onClose }
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.2 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-5xl h-[80vh] bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl flex"
+            className={isMobileLayout
+              ? 'w-full h-full bg-zinc-900 overflow-hidden flex flex-col'
+              : 'w-full max-w-5xl h-[80vh] bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl flex'
+            }
           >
-            <aside className="w-80 border-r border-zinc-700 flex flex-col bg-zinc-900/90">
+            <aside className={`border-r border-zinc-700 flex flex-col bg-zinc-900/90 ${
+              isMobileLayout
+                ? (mobileView === 'list' ? 'flex w-full h-full' : 'hidden')
+                : 'w-80'
+            }`}>
               <div className="h-14 px-4 border-b border-zinc-700 flex items-center justify-between">
                 <div className="flex items-center gap-2 text-zinc-100 font-semibold">
                   <MessageCircle className="w-4 h-4" />
@@ -210,7 +219,10 @@ export default function ChatWindow({ isOpen, currentProfile, profiles, onClose }
                   return (
                     <button
                       key={profile.id}
-                      onClick={() => setSelectedProfileId(profile.id)}
+                      onClick={() => {
+                        setSelectedProfileId(profile.id);
+                        if (isMobileLayout) setMobileView('chat');
+                      }}
                       className={`w-full text-left p-3 rounded-lg border transition-colors ${
                         isActive
                           ? 'bg-indigo-600/20 border-indigo-500/40'
@@ -241,10 +253,21 @@ export default function ChatWindow({ isOpen, currentProfile, profiles, onClose }
               </div>
             </aside>
 
-            <section className="flex-1 flex flex-col bg-zinc-900">
-              <div className="h-14 px-4 border-b border-zinc-700 flex items-center justify-between">
-                <div className="text-zinc-100 font-medium">
-                  {selectedProfile ? `Conversation avec ${selectedProfile.name}` : 'Choisissez un profil'}
+            <section className={`flex flex-col bg-zinc-900 ${
+              isMobileLayout
+                ? (mobileView === 'chat' ? 'flex w-full h-full' : 'hidden')
+                : 'flex-1'
+            }`}>
+              <div className="h-14 px-4 border-b border-zinc-700 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {isMobileLayout && (
+                    <button onClick={() => setMobileView('list')} className="shrink-0 p-1.5 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                  )}
+                  <div className="text-zinc-100 font-medium truncate">
+                    {selectedProfile ? `${selectedProfile.name}` : 'Choisissez un profil'}
+                  </div>
                 </div>
                 <button
                   onClick={handleDeleteConversation}

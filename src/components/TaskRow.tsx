@@ -33,6 +33,7 @@ interface TaskRowProps {
   onMoveDown?: (task: Task) => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  isMobileLayout?: boolean;
 }
 
 const TaskRowComponent = ({
@@ -56,6 +57,7 @@ const TaskRowComponent = ({
   currentUserName,
   onMoveUp,
   onMoveDown,
+  isMobileLayout = false,
   canMoveUp,
   canMoveDown,
 }: TaskRowProps) => {
@@ -479,7 +481,7 @@ const TaskRowComponent = ({
               <EntityDocuments entityType="task" entityId={task.id} />
             </div>
 
-            {hoveredId === task.id && (
+            {(isMobileLayout || hoveredId === task.id) && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -668,7 +670,7 @@ const TaskRowComponent = ({
                 className="w-20 h-20 rounded-xl object-cover border border-zinc-200 shadow-sm"
                 onHasImageChange={setHasThumbnail}
               />
-              {hoveredId === task.id && hasThumbnail && (
+              {(isMobileLayout || hoveredId === task.id) && hasThumbnail && (
                 <button
                   type="button"
                   onClick={handleDeleteTaskThumbnail}
@@ -799,6 +801,7 @@ const TaskRowComponent = ({
               onValidateSubtask={onValidateTask}
               initialShowAddForm={showAddFormOnExpand}
               currentUserName={currentUserName}
+              isMobileLayout={isMobileLayout}
             />
           </motion.div>
         )}

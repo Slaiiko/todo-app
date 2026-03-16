@@ -22,9 +22,10 @@ interface Props {
   categories?: Category[];
   affaires?: Affaire[];
   currentUserName?: string;
+  isMobileLayout?: boolean;
 }
 
-export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, onDuplicate, onAddAlert, onValidateTask, selectedCategoryFilter, selectedAffaireFilter, categories = [], affaires = [], currentUserName }: Props) {
+export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, onDuplicate, onAddAlert, onValidateTask, selectedCategoryFilter, selectedAffaireFilter, categories = [], affaires = [], currentUserName, isMobileLayout = false }: Props) {
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [filter, setFilter] = useState<number | null>(null);
@@ -463,6 +464,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        isMobileLayout={isMobileLayout}
                         onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
                         onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
                         canMoveUp={index > 0}
@@ -503,6 +505,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        isMobileLayout={isMobileLayout}
                         onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
                         onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
                         canMoveUp={index > 0}
@@ -543,6 +546,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        isMobileLayout={isMobileLayout}
                         onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
                         onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
                         canMoveUp={index > 0}
@@ -583,6 +587,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                         onAddAlert={onAddAlert}
                         onValidateTask={onValidateTask}
                         currentUserName={currentUserName}
+                        isMobileLayout={isMobileLayout}
                         onMoveUp={(rowTask) => moveTaskInSection(columnTasks, rowTask, -1)}
                         onMoveDown={(rowTask) => moveTaskInSection(columnTasks, rowTask, 1)}
                         canMoveUp={index > 0}
@@ -676,7 +681,7 @@ export default function TaskList({ tasks, onEdit, onToggleComplete, onDelete, on
                             })()}
                           </div>
                           
-                          {hoveredId === task.id && (
+                          {(isMobileLayout || hoveredId === task.id) && (
                             <motion.div
                               initial={{ opacity: 0 }}
                               animate={{ opacity: 1 }}
