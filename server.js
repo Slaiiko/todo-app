@@ -482,8 +482,103 @@ const restoreSubtasksWithParents = (subtasks, taskMap, mode = 'insert') => {
 };
 // Intentionally no automatic seed data.
 // A fresh database should stay empty so users can start from a blank state.
+// ── Resilience helpers ────────────────────────────────────────────────────────
+/** Path where we keep the "emergency" pre-shutdown snapshot. */
+const EMERGENCY_BACKUP_PATH = path.join(DATA_ROOT, "emergency_backup.db");
+/**
+ * Checkpoint WAL and copy the live DB to `dest`.
+ * We use the SQLite VACUUM INTO command (available in SQLite ≥3.27) so the
+ * copy is made without ever closing the database.
+ */
+function snapshotDb(dest) {
+    try {
+        db.pragma("wal_checkpoint(FULL)");
+        // VACUUM INTO creates a clean, compacted copy atomically.
+        db.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
+        console.log("[snapshot] DB saved to", dest);
+    }
+    catch (err) {
+        // Fallback: plain file copy (less ideal but always available)
+        try {
+            fs.copyFileSync(DB_PATH, dest);
+            console.log("[snapshot] DB copied (fallback) to", dest);
+        }
+        catch (e) {
+            console.error("[snapshot] Failed to save DB:", e);
+        }
+    }
+}
+/**
+ * On startup: if the profiles table is empty AND an emergency backup exists,
+ * restore from it so we survive a redeploy with ephemeral local storage.
+ */
+function autoRestoreIfEmpty() {
+    try {
+        const count = db.prepare("SELECT COUNT(*) as n FROM profiles").get()?.n ?? 0;
+        if (count > 0)
+            return; // DB already has data, nothing to do
+        if (fs.existsSync(EMERGENCY_BACKUP_PATH)) {
+            console.log("[auto-restore] DB is empty – restoring from emergency backup…");
+            // Close is not possible (we have a live handle), so we read ALL data
+            // from the snapshot and re-insert it.
+            const snap = new Database(EMERGENCY_BACKUP_PATH, { readonly: true });
+            const allTables = [
+                "profiles", "categories", "affaires", "tasks", "subtasks", "documents",
+                "task_assignees", "pomodoro", "appointments", "appointment_participants",
+                "backup_log", "chat_messages",
+            ];
+            const snapTableNames = new Set(snap.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
+                .map((r) => String(r.name)));
+            const insertRows = (table, rows) => {
+                if (!rows.length)
+                    return;
+                const destCols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => String(c.name));
+                const destSet = new Set(destCols);
+                const common = Object.keys(rows[0]).filter((c) => destSet.has(c));
+                if (!common.length)
+                    return;
+                const stmt = db.prepare(`INSERT OR IGNORE INTO ${table} (${common.join(",")}) VALUES (${common.map(() => "?").join(",")})`);
+                for (const row of rows)
+                    stmt.run(...common.map((c) => (row[c] === undefined ? null : row[c])));
+            };
+            db.transaction(() => {
+                for (const table of allTables) {
+                    if (!snapTableNames.has(table))
+                        continue;
+                    const rows = snap.prepare(`SELECT * FROM ${table}`).all();
+                    insertRows(table, rows);
+                }
+            })();
+            snap.close();
+            const restored = db.prepare("SELECT COUNT(*) as n FROM profiles").get()?.n ?? 0;
+            console.log(`[auto-restore] Restored ${restored} profile(s) from emergency backup.`);
+        }
+        else {
+            console.log("[auto-restore] No emergency backup found. Starting with empty DB.");
+        }
+    }
+    catch (err) {
+        console.error("[auto-restore] Failed:", err);
+    }
+}
+/** Graceful shutdown: checkpoint + emergency snapshot. */
+function handleShutdown(signal) {
+    console.log(`[shutdown] Received ${signal} – saving emergency backup…`);
+    snapshotDb(EMERGENCY_BACKUP_PATH);
+    process.exit(0);
+}
+process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+process.on("SIGINT", () => handleShutdown("SIGINT"));
+// ─────────────────────────────────────────────────────────────────────────────
 async function startServer() {
     const app = express();
+    // ── Startup resilience ──────────────────────────────────────────────────────
+    autoRestoreIfEmpty();
+    // Periodic emergency snapshot every 30 minutes
+    setInterval(() => {
+        snapshotDb(EMERGENCY_BACKUP_PATH);
+    }, 30 * 60 * 1000);
+    // ────────────────────────────────────────────────────────────────────────────
     // Enable CORS for all origins
     app.use((req, res, next) => {
         res.header('Access-Control-Allow-Origin', '*');
