@@ -366,13 +366,18 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
           }
         }
 
-        await refreshProfilesList();
-
         const importScopeLabel = importTarget === 'full' ? 'application complète' : 'profil(s)';
-        showImportToast('success', `Importation ${importKind.toUpperCase()} réussie (${importScopeLabel}).`);
+        showImportToast('success', `Importation ${importKind.toUpperCase()} réussie (${importScopeLabel}). Rechargement...`);
         setShowImportModal(false);
         setImportFile(null);
         setImportPassword('');
+
+        // Full import replaces everything — hard reload for fresh state
+        if (importTarget === 'full') {
+          setTimeout(() => window.location.reload(), 1500);
+        } else {
+          await refreshProfilesList();
+        }
       } else {
         showImportToast('error', data?.error || 'Erreur lors de l\'importation.');
       }

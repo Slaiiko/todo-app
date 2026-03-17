@@ -191,9 +191,9 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         throw new Error(data?.error || `Erreur ${res.status}`);
       }
 
-      showMessage('success', `Base restaurée : ${data.profileCount ?? 0} profils, ${data.taskCount ?? 0} tâches, ${data.documentCount ?? 0} documents.`);
-      fetchBackups();
-      onRestoreComplete();
+      showMessage('success', `Base restaurée : ${data.profileCount ?? 0} profils, ${data.taskCount ?? 0} tâches. Rechargement...`);
+      // Full DB restore replaces everything — hard reload to get fresh state
+      setTimeout(() => window.location.reload(), 1500);
     } catch (error: any) {
       showMessage('error', error?.message || 'Erreur lors de la restauration de la base');
     } finally {
