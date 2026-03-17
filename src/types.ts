@@ -121,6 +121,7 @@ export interface Appointment {
   title: string;
   description: string;
   location: string;
+  image_data?: string | null;
   start_time: string; // ISO 8601 datetime
   end_time: string; // ISO 8601 datetime
   affaire_id?: number | null;

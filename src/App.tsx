@@ -1481,8 +1481,16 @@ export default function App() {
         profile_id: apt.profile_id,
         title: apt.title,
         description_md: apt.description || '',
+        image_data: apt.image_data || null,
         start_date: apt.start_time?.split('T')[0] || null,
         due_date: apt.end_time?.split('T')[0] || null,
+        start_time: apt.start_time?.split('T')[1]?.slice(0, 5) || null,
+        end_time: apt.end_time?.split('T')[1]?.slice(0, 5) || null,
+        location: apt.location || '',
+        video_call_link: apt.video_call_link || null,
+        participants: apt.participants || [],
+        recurrence_type: apt.recurrence_type || null,
+        recurrence_end_date: apt.recurrence_end_date || null,
         priority: 'Medium' as const,
         category_id: null,
         affaire_id: apt.affaire_id || null,
@@ -1545,10 +1553,16 @@ export default function App() {
           profile_id: occurrence.profile_id,
           title: occurrence.title,
           description_md: occurrence.description || '',
+          image_data: occurrence.image_data || null,
           start_date: occurrence.start_time?.split('T')[0] || null,
           due_date: occurrence.end_time?.split('T')[0] || null,
           start_time: startTimeStr,
           end_time: endTimeStr,
+          location: occurrence.location || '',
+          video_call_link: occurrence.video_call_link || null,
+          participants: occurrence.participants || [],
+          recurrence_type: occurrence.recurrence_type || null,
+          recurrence_end_date: occurrence.recurrence_end_date || null,
           priority: 'Medium' as const,
           category_id: null,
           affaire_id: occurrence.affaire_id || null,
@@ -1804,22 +1818,58 @@ export default function App() {
 
   const handleTaskDuplicate = async (taskId: number) => {
     try {
+      if (taskId < 0) {
+        const appointmentId = -taskId;
+        const sourceAppointment = appointments.find((apt) => apt.id === appointmentId);
+        if (!sourceAppointment || !activeProfile) return;
+
+        const duplicateAppointmentPayload = {
+          profile_id: activeProfile.id,
+          title: `${sourceAppointment.title} (copie)`,
+          description: sourceAppointment.description || '',
+          location: sourceAppointment.location || '',
+          image_data: sourceAppointment.image_data || null,
+          start_time: sourceAppointment.start_time,
+          end_time: sourceAppointment.end_time,
+          affaire_id: sourceAppointment.affaire_id || null,
+          video_call_link: sourceAppointment.video_call_link || null,
+          recurrence_type: sourceAppointment.recurrence_type || null,
+          recurrence_end_date: sourceAppointment.recurrence_end_date || null,
+          participants: sourceAppointment.participants || []
+        };
+
+        const duplicateAppointmentResponse = await fetch(getAPIUrl('/appointments'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(duplicateAppointmentPayload)
+        });
+
+        if (!duplicateAppointmentResponse.ok) throw new Error('Failed to duplicate appointment');
+        await fetchData();
+        return;
+      }
+
       // Get the task to duplicate
       const task = tasks.find(t => t.id === taskId);
       if (!task) return;
+
+      const todayIso = `${new Date().toISOString().split('T')[0]}T00:00:00.000Z`;
 
       // Create a new task with copied properties
       const newTaskData = {
         profile_id: activeProfile?.id,
         title: task.title + ' (copie)',
         description_md: task.description_md || '',
-        start_date: new Date().toISOString().split('T')[0] + 'T00:00:00.000Z',
-        due_date: new Date().toISOString().split('T')[0] + 'T00:00:00.000Z',
+        start_date: task.start_date || task.due_date || todayIso,
+        due_date: task.due_date || task.start_date || todayIso,
         start_time: task.start_time || null,
         end_time: task.end_time || null,
         priority: task.priority,
         category_id: task.category_id || null,
         affaire_id: task.affaire_id || null,
+        recurrence_type: task.recurrence_type || null,
+        recurrence_end_date: task.recurrence_end_date || null,
+        image_data: (task as any).image_data || null,
         kanban_column: 'To Do'
       };
 
@@ -2053,6 +2103,7 @@ export default function App() {
         title: appointmentData.title,
         description: appointmentData.description,
         location: appointmentData.location,
+        image_data: appointmentData.image_data || null,
         start_time: appointmentData.start_time,
         end_time: appointmentData.end_time,
         affaire_id: appointmentData.affaire_id,

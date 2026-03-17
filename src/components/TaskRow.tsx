@@ -137,15 +137,34 @@ const TaskRowComponent = ({
         reader.readAsDataURL(file);
       });
 
-      const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_data: dataUrl })
-      });
+      const response = await fetch(
+        getAPIUrl(isAppointmentEntry ? `/appointments/${appointmentId}` : `/tasks/${task.id}`),
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: isAppointmentEntry
+            ? JSON.stringify({
+                title: task.title,
+                description: task.description_md || '',
+                location: (task as any).location || '',
+                image_data: dataUrl,
+                start_time: (task as any).start_time ? `${task.start_date}T${(task as any).start_time}:00` : `${task.start_date}T09:00:00`,
+                end_time: (task as any).end_time ? `${task.due_date || task.start_date}T${(task as any).end_time}:00` : `${task.due_date || task.start_date}T10:00:00`,
+                affaire_id: task.affaire_id || null,
+                video_call_link: (task as any).video_call_link || null,
+                recurrence_type: (task as any).recurrence_type || null,
+                recurrence_end_date: (task as any).recurrence_end_date || null,
+                participants: (task as any).participants || []
+              })
+            : JSON.stringify({ image_data: dataUrl })
+        }
+      );
 
-      if (response.ok) {
-        window.dispatchEvent(new CustomEvent('taskMoved'));
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
+
+      window.dispatchEvent(new CustomEvent('taskMoved'));
     } catch (error) {
       console.error('Failed to update task image:', error);
       alert('Erreur lors de l\'ajout de la photo.');
@@ -162,11 +181,28 @@ const TaskRowComponent = ({
 
     try {
       if (task.image_data) {
-        const response = await fetch(getAPIUrl(`/tasks/${task.id}`), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image_data: null })
-        });
+        const response = await fetch(
+          getAPIUrl(isAppointmentEntry ? `/appointments/${appointmentId}` : `/tasks/${task.id}`),
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: isAppointmentEntry
+              ? JSON.stringify({
+                  title: task.title,
+                  description: task.description_md || '',
+                  location: (task as any).location || '',
+                  image_data: null,
+                  start_time: (task as any).start_time ? `${task.start_date}T${(task as any).start_time}:00` : `${task.start_date}T09:00:00`,
+                  end_time: (task as any).end_time ? `${task.due_date || task.start_date}T${(task as any).end_time}:00` : `${task.due_date || task.start_date}T10:00:00`,
+                  affaire_id: task.affaire_id || null,
+                  video_call_link: (task as any).video_call_link || null,
+                  recurrence_type: (task as any).recurrence_type || null,
+                  recurrence_end_date: (task as any).recurrence_end_date || null,
+                  participants: (task as any).participants || []
+                })
+              : JSON.stringify({ image_data: null })
+          }
+        );
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Profile } from '../types';
 import { getAPIUrl } from '../utils/api';
@@ -37,10 +37,19 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
   const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
+  const importToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editName, setEditName] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
   const [editLogo, setEditLogo] = useState('');
   const [logoInputValue, setLogoInputValue] = useState('');
+
+  useEffect(() => {
+    return () => {
+      if (importToastTimerRef.current) {
+        clearTimeout(importToastTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleCreateLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -188,8 +197,11 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
   };
 
   const showImportToast = (type: 'success' | 'error', text: string, ms = 6000) => {
+    if (importToastTimerRef.current) {
+      clearTimeout(importToastTimerRef.current);
+    }
     setImportMessage({ type, text });
-    setTimeout(() => setImportMessage(null), ms);
+    importToastTimerRef.current = setTimeout(() => setImportMessage(null), ms);
   };
 
   const readFileAsBase64 = (file: File): Promise<string> =>
@@ -221,12 +233,23 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
     setIsExportingAllJson(true);
     try {
       const allComments: Record<string, any[]> = {};
+      const allSettings: Record<string, any> = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
+        if (!key) continue;
+
+        const rawValue = localStorage.getItem(key);
+        if (rawValue !== null) {
+          try {
+            allSettings[key] = JSON.parse(rawValue);
+          } catch {
+            allSettings[key] = rawValue;
+          }
+        }
+
         if (key && (key.includes('-comments') || key.startsWith('task-') || key.startsWith('subtask-'))) {
           try {
-            const value = localStorage.getItem(key);
-            if (value) allComments[key] = JSON.parse(value);
+            if (rawValue) allComments[key] = JSON.parse(rawValue);
           } catch (_) {}
         }
       }
@@ -234,7 +257,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
       const res = await fetch(getAPIUrl('/backups/export'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'full', comments: allComments })
+        body: JSON.stringify({ scope: 'full', comments: allComments, settings: allSettings })
       });
       const data = await res.json();
       if (!res.ok || !data?.success) {
@@ -281,6 +304,9 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
       return;
     }
     setImportKind(isDb ? 'db' : 'json');
+    if (isDb) {
+      setImportTarget('full');
+    }
     setImportFile(file);
     setImportPassword('');
     setShowImportModal(true);
@@ -358,8 +384,21 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
         });
       }
 
-      data = await response.json();
+      const rawBody = await response.text();
+      try {
+        data = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        data = { error: rawBody || `Erreur HTTP ${response.status}` };
+      }
       if (response.ok && data?.success) {
+        if (data.settings && typeof data.settings === 'object') {
+          for (const [key, value] of Object.entries(data.settings)) {
+            try {
+              localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+            } catch (_) {}
+          }
+        }
+
         if (data.comments && typeof data.comments === 'object') {
           for (const [key, value] of Object.entries(data.comments)) {
             try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
@@ -372,13 +411,14 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
         setImportFile(null);
         setImportPassword('');
 
-        // Full import replaces everything — hard reload for fresh state
-        if (importTarget === 'full') {
+        // DB import or full import replaces broad app state — hard reload for fresh state
+        if (isDb || importTarget === 'full') {
           setTimeout(() => window.location.reload(), 1500);
         } else {
           await refreshProfilesList();
         }
       } else {
+        console.error('[import] Server error:', response.status, data);
         showImportToast('error', data?.error || 'Erreur lors de l\'importation.');
       }
     } catch (err: any) {
@@ -433,9 +473,10 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
         </div>
 
         {/* Import message */}
-        <AnimatePresence>
+        <AnimatePresence mode="wait">
           {importMessage && (
             <motion.div
+              key={`${importMessage.type}-${importMessage.text}`}
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -458,10 +499,18 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
               key={profile.id}
               className="flex flex-col items-center gap-4 group"
             >
-              <motion.button
+              <motion.div
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => onSelect(profile)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelect(profile);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
                 className="relative"
               >
                 <div className="w-32 h-32 rounded-3xl bg-zinc-800 flex items-center justify-center text-5xl border-2 border-transparent group-hover:border-indigo-500 transition-colors shadow-xl overflow-hidden">
@@ -504,7 +553,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
                     <Trash2 className="w-5 h-5" />
                   </motion.button>
                 </motion.div>
-              </motion.button>
+              </motion.div>
               
               <span className="text-lg font-medium text-zinc-300 group-hover:text-white transition-colors">
                 {profile.name}

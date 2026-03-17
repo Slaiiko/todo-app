@@ -176,6 +176,12 @@ try {
 catch (e) {
     // Column might already exist
 }
+try {
+    db.exec(`ALTER TABLE appointments ADD COLUMN image_data TEXT DEFAULT NULL`);
+}
+catch (e) {
+    // Column might already exist
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,6 +308,7 @@ db.exec(`
     title TEXT NOT NULL,
     description TEXT,
     location TEXT,
+    image_data TEXT DEFAULT NULL,
     start_time DATETIME NOT NULL,
     end_time DATETIME NOT NULL,
     affaire_id INTEGER,
@@ -1261,7 +1268,7 @@ async function startServer() {
     });
     app.post("/api/backups/export", (req, res) => {
         try {
-            const { profileId, password, comments, scope } = req.body;
+            const { profileId, password, comments, settings, scope } = req.body;
             const exportScope = scope === 'profile' ? 'profile' : 'full';
             const allProfiles = db.prepare("SELECT * FROM profiles").all();
             const allTasks = db.prepare("SELECT * FROM tasks").all();
@@ -1273,6 +1280,7 @@ async function startServer() {
             const allAppointments = db.prepare("SELECT * FROM appointments").all();
             const allParticipants = db.prepare("SELECT * FROM appointment_participants").all();
             const allDocuments = db.prepare("SELECT * FROM documents").all();
+            const allChatMessages = db.prepare("SELECT * FROM chat_messages").all();
             let profiles = [];
             let tasks = [];
             let subtasks = [];
@@ -1283,6 +1291,7 @@ async function startServer() {
             let appointments = [];
             let appointment_participants = [];
             let documents = [];
+            let chat_messages = [];
             let exportedBy = 'System';
             if (exportScope === 'full') {
                 profiles = allProfiles;
@@ -1295,6 +1304,7 @@ async function startServer() {
                 appointments = allAppointments;
                 appointment_participants = allParticipants;
                 documents = allDocuments;
+                chat_messages = allChatMessages;
                 exportedBy = 'All profiles';
             }
             else {
@@ -1318,6 +1328,7 @@ async function startServer() {
                     const entityId = Number(d.entity_id);
                     return (entityType === 'task' && taskIds.has(entityId)) || (entityType === 'subtask' && subtaskIds.has(entityId));
                 });
+                chat_messages = [];
                 exportedBy = profile.name;
             }
             const backupData = {
@@ -1335,12 +1346,13 @@ async function startServer() {
                 appointments,
                 appointment_participants,
                 documents,
+                chat_messages,
                 comments: comments || {},
                 images: [],
                 badges: [],
                 goals: [],
                 history: [],
-                settings: {}
+                settings: settings && typeof settings === 'object' ? settings : {}
             };
             const jsonString = JSON.stringify(backupData);
             const checksum = crypto.createHash("sha256").update(jsonString).digest("hex");
@@ -1431,6 +1443,7 @@ async function startServer() {
                     tempDb.prepare("DELETE FROM affaires WHERE profile_id != ?").run(keepProfileId);
                     tempDb.prepare("DELETE FROM categories WHERE profile_id != ?").run(keepProfileId);
                     tempDb.prepare("DELETE FROM backup_log").run();
+                    tempDb.prepare("DELETE FROM chat_messages").run();
                     tempDb.prepare("DELETE FROM profiles WHERE id != ?").run(keepProfileId);
                 })();
                 tempDb.close();
@@ -1473,8 +1486,12 @@ async function startServer() {
                 return res.status(400).json({ error: "Unsupported database format" });
             }
             const buffer = Buffer.from(fileContentBase64, 'base64');
-            if (!buffer || buffer.length < 1024) {
+            if (!buffer || buffer.length === 0) {
                 return res.status(400).json({ error: "Invalid or empty database file" });
+            }
+            const sqliteHeader = buffer.subarray(0, 16).toString('utf8');
+            if (sqliteHeader !== 'SQLite format 3\u0000') {
+                return res.status(400).json({ error: "Invalid SQLite database file" });
             }
             const tempName = `import_${Date.now()}_${Math.random().toString(36).slice(2)}.db`;
             const tempPath = path.join(BACKUP_DIR, tempName);
@@ -1554,6 +1571,7 @@ async function startServer() {
                     insertRowsIntoTable('appointments', sourceData.appointments || []);
                     insertRowsIntoTable('appointment_participants', sourceData.appointment_participants || []);
                     insertRowsIntoTable('backup_log', sourceData.backup_log || []);
+                    insertRowsIntoTable('chat_messages', sourceData.chat_messages || []);
                 }
                 else {
                     const profileMap = new Map();
@@ -1574,7 +1592,7 @@ async function startServer() {
                     for (const a of (sourceData.affaires || [])) {
                         if (!profileMap.has(Number(a.profile_id)))
                             continue;
-                        const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(profileMap.get(Number(a.profile_id)), a.number, a.name, a.color, a.status, a.created_at);
+                        const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(profileMap.get(Number(a.profile_id)), a.number, a.name, a.color, a.status, a.image_data || null, a.created_at);
                         affaireMap.set(Number(a.id), Number(info.lastInsertRowid));
                     }
                     const taskMap = new Map();
@@ -1582,9 +1600,9 @@ async function startServer() {
                         if (!profileMap.has(Number(t.profile_id)))
                             continue;
                         const info = db.prepare(`
-              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(profileMap.get(Number(t.profile_id)), t.title, t.description_md, t.start_date || null, t.due_date || null, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(Number(t.category_id)) || null, affaireMap.get(Number(t.affaire_id)) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at || null);
+              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(profileMap.get(Number(t.profile_id)), t.title, t.description_md, t.start_date || null, t.due_date || null, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(Number(t.category_id)) || null, affaireMap.get(Number(t.affaire_id)) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at || null);
                         taskMap.set(Number(t.id), Number(info.lastInsertRowid));
                     }
                     const subtaskMap = restoreSubtasksWithParents(sourceData.subtasks || [], taskMap, 'insert');
@@ -1607,9 +1625,9 @@ async function startServer() {
                         if (!mappedProfileId)
                             continue;
                         const info = db.prepare(`
-              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(mappedProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(Number(a.affaire_id)) || null, a.video_call_link || null, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
+              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, image_data, recurrence_type, recurrence_end_date, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(mappedProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(Number(a.affaire_id)) || null, a.video_call_link || null, a.image_data || null, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
                         appointmentMap.set(Number(a.id), Number(info.lastInsertRowid));
                     }
                     for (const ap of (sourceData.appointment_participants || [])) {
@@ -1632,6 +1650,16 @@ async function startServer() {
               INSERT INTO documents (entity_type, entity_id, file_name, mime_type, data_url, created_at)
               VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             `).run(entityType, mappedEntityId, d.file_name || 'document', d.mime_type || null, d.data_url || '', d.created_at || null);
+                    }
+                    for (const msg of (sourceData.chat_messages || [])) {
+                        const mappedSenderId = profileMap.get(Number(msg.sender_profile_id));
+                        const mappedRecipientId = profileMap.get(Number(msg.recipient_profile_id));
+                        if (!mappedSenderId || !mappedRecipientId)
+                            continue;
+                        db.prepare(`
+              INSERT INTO chat_messages (sender_profile_id, recipient_profile_id, content, is_read, created_at)
+              VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+            `).run(mappedSenderId, mappedRecipientId, msg.content || '', msg.is_read ? 1 : 0, msg.created_at || null);
                     }
                 }
             })();
@@ -1758,17 +1786,27 @@ async function startServer() {
                     // Insert affaires
                     const affaireMap = new Map();
                     for (const a of (backupData.affaires || [])) {
-                        const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(profileMap.get(a.profile_id), a.number, a.name, a.color, a.status, a.created_at);
+                        const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(profileMap.get(a.profile_id), a.number, a.name, a.color, a.status, a.image_data || null, a.created_at);
                         affaireMap.set(a.id, info.lastInsertRowid);
                     }
                     // Insert tasks
                     const taskMap = new Map();
                     for (const t of (backupData.tasks || [])) {
                         const info = db.prepare(`
-              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at || null);
+              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at || null);
                         taskMap.set(t.id, info.lastInsertRowid);
+                    }
+                    for (const msg of (backupData.chat_messages || [])) {
+                        const mappedSenderId = profileMap.get(msg.sender_profile_id);
+                        const mappedRecipientId = profileMap.get(msg.recipient_profile_id);
+                        if (!mappedSenderId || !mappedRecipientId)
+                            continue;
+                        db.prepare(`
+              INSERT INTO chat_messages (sender_profile_id, recipient_profile_id, content, is_read, created_at)
+              VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+            `).run(mappedSenderId, mappedRecipientId, msg.content || '', msg.is_read ? 1 : 0, msg.created_at || null);
                     }
                     // Insert subtasks
                     const subtaskMap = restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
@@ -1793,9 +1831,9 @@ async function startServer() {
                         if (!mappedProfileId)
                             continue;
                         const info = db.prepare(`
-              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(mappedProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
+              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, image_data, recurrence_type, recurrence_end_date, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(mappedProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.image_data || null, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
                         appointmentMap.set(a.id, info.lastInsertRowid);
                     }
                     // Insert appointment participants
@@ -1834,10 +1872,10 @@ async function startServer() {
                         const existing = db.prepare("SELECT id FROM affaires WHERE profile_id = ? AND number = ?").get(targetProfileId, a.number);
                         if (existing) {
                             affaireMap.set(a.id, existing.id);
-                            db.prepare("UPDATE affaires SET name = ?, color = ?, status = ? WHERE id = ?").run(a.name, a.color, a.status, existing.id);
+                            db.prepare("UPDATE affaires SET name = ?, color = ?, status = ?, image_data = ? WHERE id = ?").run(a.name, a.color, a.status, a.image_data || null, existing.id);
                         }
                         else {
-                            const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(targetProfileId, a.number, a.name, a.color, a.status, a.created_at);
+                            const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(targetProfileId, a.number, a.name, a.color, a.status, a.image_data || null, a.created_at);
                             affaireMap.set(a.id, info.lastInsertRowid);
                         }
                     }
@@ -1854,16 +1892,16 @@ async function startServer() {
                             if (backupUpdated > existingUpdated) {
                                 db.prepare(`
                   UPDATE tasks 
-                  SET description_md = ?, start_date = ?, due_date = ?, start_time = ?, end_time = ?, priority = ?, category_id = ?, affaire_id = ?, is_complete = ?, is_archived = ?, is_deleted = ?, bg_color = ?, time_spent = ?, recurrence = ?, recurrence_type = ?, recurrence_end_date = ?, order_index = ?, kanban_column = ?, completed_at = ?, updated_at = ?
+                  SET description_md = ?, start_date = ?, due_date = ?, start_time = ?, end_time = ?, priority = ?, category_id = ?, affaire_id = ?, is_complete = ?, is_archived = ?, is_deleted = ?, bg_color = ?, time_spent = ?, recurrence = ?, recurrence_type = ?, recurrence_end_date = ?, image_data = ?, order_index = ?, kanban_column = ?, completed_at = ?, updated_at = ?
                   WHERE id = ?
-                `).run(t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.order_index, t.kanban_column, t.completed_at, t.updated_at || t.created_at, existing.id);
+                `).run(t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.completed_at, t.updated_at || t.created_at, existing.id);
                             }
                         }
                         else {
                             const info = db.prepare(`
-                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).run(targetProfileId, t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
+                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(targetProfileId, t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
                             taskMap.set(t.id, info.lastInsertRowid);
                         }
                     }
@@ -1891,16 +1929,16 @@ async function startServer() {
                             if (backupUpdated > existingUpdated) {
                                 db.prepare(`
                   UPDATE appointments
-                  SET description = ?, location = ?, affaire_id = ?, video_call_link = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = ?
+                  SET description = ?, location = ?, affaire_id = ?, video_call_link = ?, image_data = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = ?
                   WHERE id = ?
-                `).run(a.description, a.location, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.recurrence_type || null, a.recurrence_end_date || null, a.updated_at || a.created_at, existing.id);
+                `).run(a.description, a.location, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.image_data || null, a.recurrence_type || null, a.recurrence_end_date || null, a.updated_at || a.created_at, existing.id);
                             }
                         }
                         else {
                             const info = db.prepare(`
-                INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).run(targetProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
+                INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, image_data, recurrence_type, recurrence_end_date, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(targetProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.image_data || null, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
                             appointmentMap.set(a.id, info.lastInsertRowid);
                         }
                     }
@@ -1939,7 +1977,7 @@ async function startServer() {
                     const affaireMap = new Map();
                     for (const a of (backupData.affaires || [])) {
                         if (profileMap.has(a.profile_id)) {
-                            const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(profileMap.get(a.profile_id), a.number, a.name, a.color, a.status, a.created_at);
+                            const info = db.prepare("INSERT INTO affaires (profile_id, number, name, color, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(profileMap.get(a.profile_id), a.number, a.name, a.color, a.status, a.image_data || null, a.created_at);
                             affaireMap.set(a.id, info.lastInsertRowid);
                         }
                     }
@@ -1948,11 +1986,21 @@ async function startServer() {
                     for (const t of (backupData.tasks || [])) {
                         if (profileMap.has(t.profile_id)) {
                             const info = db.prepare(`
-                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, order_index, kanban_column, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
+                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
                             taskMap.set(t.id, info.lastInsertRowid);
                         }
+                    }
+                    for (const msg of (backupData.chat_messages || [])) {
+                        const mappedSenderId = profileMap.get(msg.sender_profile_id);
+                        const mappedRecipientId = profileMap.get(msg.recipient_profile_id);
+                        if (!mappedSenderId || !mappedRecipientId)
+                            continue;
+                        db.prepare(`
+              INSERT INTO chat_messages (sender_profile_id, recipient_profile_id, content, is_read, created_at)
+              VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+            `).run(mappedSenderId, mappedRecipientId, msg.content || '', msg.is_read ? 1 : 0, msg.created_at || null);
                     }
                     // Insert subtasks
                     const subtaskMap = restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
@@ -1977,9 +2025,9 @@ async function startServer() {
                         if (!mappedProfileId)
                             continue;
                         const info = db.prepare(`
-              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(mappedProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
+              INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, image_data, recurrence_type, recurrence_end_date, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(mappedProfileId, a.title, a.description, a.location, a.start_time, a.end_time, affaireMap.get(a.affaire_id) || null, a.video_call_link, a.image_data || null, a.recurrence_type || null, a.recurrence_end_date || null, a.created_at, a.updated_at || a.created_at);
                         appointmentMap.set(a.id, info.lastInsertRowid);
                     }
                     // Insert appointment participants for imported profiles
@@ -1996,7 +2044,8 @@ async function startServer() {
                 success: true,
                 message: "Restauration terminée",
                 taskCount: backupData.tasks.length,
-                comments: backupData.comments || {}
+                comments: backupData.comments || {},
+                settings: backupData.settings || {}
             });
         }
         catch (error) {
@@ -2021,7 +2070,7 @@ async function startServer() {
     });
     app.post("/api/appointments", (req, res) => {
         try {
-            const { profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
+            const { profile_id, title, description, location, image_data, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
             if (!profile_id || !title || !start_time || !end_time) {
                 return res.status(400).json({ error: "Missing required fields (profile_id, title, start_time, end_time)" });
             }
@@ -2036,10 +2085,10 @@ async function startServer() {
                     .filter((p) => p.first_name || p.last_name || p.email || p.phone || p.company_entity)
                 : [];
             const stmt = db.prepare(`
-        INSERT INTO appointments (profile_id, title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO appointments (profile_id, title, description, location, image_data, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-            const info = stmt.run(profile_id, title, description, location, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null);
+            const info = stmt.run(profile_id, title, description, location, image_data || null, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null);
             const appointmentId = info.lastInsertRowid;
             if (normalizedParticipants.length > 0) {
                 const participantStmt = db.prepare(`
@@ -2059,15 +2108,15 @@ async function startServer() {
     });
     app.put("/api/appointments/:id", (req, res) => {
         try {
-            const { title, description, location, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
+            const { title, description, location, image_data, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
             if (!title || !start_time || !end_time) {
                 return res.status(400).json({ error: "Missing required fields (title, start_time, end_time)" });
             }
             db.prepare(`
         UPDATE appointments 
-        SET title = ?, description = ?, location = ?, start_time = ?, end_time = ?, affaire_id = ?, video_call_link = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = CURRENT_TIMESTAMP
+        SET title = ?, description = ?, location = ?, image_data = ?, start_time = ?, end_time = ?, affaire_id = ?, video_call_link = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(title, description, location, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null, req.params.id);
+      `).run(title, description, location, image_data || null, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null, req.params.id);
             db.prepare("DELETE FROM appointment_participants WHERE appointment_id = ?").run(req.params.id);
             const normalizedParticipants = Array.isArray(participants)
                 ? participants.map((p) => ({

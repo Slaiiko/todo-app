@@ -430,7 +430,7 @@ export default function FocusMode({ profile, tasks, onClose }: Props) {
         </div>
       </div>
 
-      <div className="w-full max-w-md bg-zinc-900 rounded-3xl p-6 border border-zinc-800 mt-6">
+      <div className="relative z-30 w-full max-w-md bg-zinc-900 rounded-3xl p-6 border border-zinc-800 mt-6">
         <h3 className="text-zinc-400 text-sm font-medium uppercase tracking-wider mb-1 text-center">Current Focus</h3>
         <p className="text-center text-xs text-zinc-500 mb-4">Profil: {profile.name}</p>
 
@@ -464,9 +464,9 @@ export default function FocusMode({ profile, tasks, onClose }: Props) {
         {focusTargets.length > 0 ? (
           <select 
             value={selectedTargetKey}
-            onChange={async (e) => {
+            onChange={(e) => {
               if (isActive && !isBreak) {
-                await persistPendingElapsedDelta();
+                void persistPendingElapsedDelta();
               }
               setIsActive(false);
               setIsBreak(false);

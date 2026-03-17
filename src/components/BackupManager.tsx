@@ -68,13 +68,24 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
     try {
       // Collect all comments from localStorage
       const allComments: Record<string, any[]> = {};
+      const allSettings: Record<string, any> = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
+        if (!key) continue;
+
+        const rawValue = localStorage.getItem(key);
+        if (rawValue !== null) {
+          try {
+            allSettings[key] = JSON.parse(rawValue);
+          } catch {
+            allSettings[key] = rawValue;
+          }
+        }
+
         if (key && (key.includes('-comments') || key.startsWith('task-') || key.startsWith('subtask-'))) {
           try {
-            const value = localStorage.getItem(key);
-            if (value) {
-              allComments[key] = JSON.parse(value);
+            if (rawValue) {
+              allComments[key] = JSON.parse(rawValue);
             }
           } catch (e) {
             // Skip invalid JSON entries
@@ -89,7 +100,8 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
           profileId, 
           scope: 'profile',
           password: useEncryption ? password : null,
-          comments: allComments
+          comments: allComments,
+          settings: allSettings
         })
       });
       const data = await res.json();
@@ -185,7 +197,13 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         })
       });
 
-      const data = await res.json();
+      const rawBody = await res.text();
+      let data: any = {};
+      try {
+        data = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        data = { error: rawBody || `Erreur HTTP ${res.status}` };
+      }
       if (!res.ok || !data?.success) {
         console.error('[import-db] Server error:', res.status, data);
         throw new Error(data?.error || `Erreur ${res.status}`);
@@ -279,6 +297,16 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
       const data = await res.json();
       
       if (data.success) {
+        if (data.settings && typeof data.settings === 'object') {
+          for (const [key, value] of Object.entries(data.settings)) {
+            try {
+              localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+            } catch (e) {
+              console.error(`Failed to restore setting ${key}:`, e);
+            }
+          }
+        }
+
         // Restore comments to localStorage
         if (data.comments && typeof data.comments === 'object') {
           for (const [key, value] of Object.entries(data.comments)) {

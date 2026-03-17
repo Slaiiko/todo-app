@@ -1,8 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Trash2, Calendar, Clock, MapPin, Phone, Mail, Users } from 'lucide-react';
+import { X, Plus, Trash2, Calendar, Clock, MapPin, Phone, Mail, Users, Image as ImageIcon } from 'lucide-react';
 import { Appointment, AppointmentParticipant, Affaire } from '../types';
 import TimePicker from './TimePicker';
+
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Lecture de fichier échouée'));
+    reader.readAsDataURL(file);
+  });
 
 interface Props {
   isOpen: boolean;
@@ -20,6 +28,7 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
   const [title, setTitle] = useState(existingAppointment?.title || '');
   const [description, setDescription] = useState(existingAppointment?.description || '');
   const [location, setLocation] = useState(existingAppointment?.location || '');
+  const [imageData, setImageData] = useState(existingAppointment?.image_data || '');
   
   // Parse existing appointment times
   const getDateFromAppointment = () => {
@@ -60,6 +69,55 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (existingAppointment) {
+      setTitle(existingAppointment.title || '');
+      setDescription(existingAppointment.description || '');
+      setLocation(existingAppointment.location || '');
+      setImageData(existingAppointment.image_data || '');
+      setAppointmentDate(existingAppointment.start_time?.split('T')[0] || new Date().toISOString().split('T')[0]);
+      setStartHour(existingAppointment.start_time?.split('T')[1]?.substring(0, 5) || '09:00');
+      setEndHour(existingAppointment.end_time?.split('T')[1]?.substring(0, 5) || '10:00');
+      setAffaireId(existingAppointment.affaire_id || null);
+      setVideoLink(existingAppointment.video_call_link || '');
+      setRecurrenceType(existingAppointment.recurrence_type || null);
+      setRecurrenceEnd(existingAppointment.recurrence_end_date || '');
+      setParticipants(existingAppointment.participants || []);
+    } else {
+      setTitle('');
+      setDescription('');
+      setLocation('');
+      setImageData('');
+      setAppointmentDate(new Date().toISOString().split('T')[0]);
+      setStartHour('09:00');
+      setEndHour('10:00');
+      setAffaireId(null);
+      setVideoLink('');
+      setRecurrenceType(null);
+      setRecurrenceEnd('');
+      setParticipants([]);
+    }
+
+    setNewParticipant({ first_name: '', last_name: '', company_entity: '', phone: '', email: '' });
+  }, [isOpen, existingAppointment]);
+
+  const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setImageData(dataUrl);
+    } catch (error) {
+      console.error('Failed to load appointment image:', error);
+      alert('Impossible de charger la vignette');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   const handleAddParticipant = () => {
     if (newParticipant.first_name.trim() || newParticipant.email.trim()) {
       setParticipants([...participants, { ...newParticipant, id: Date.now() }]);
@@ -94,6 +152,7 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
         title,
         description,
         location,
+        image_data: imageData || null,
         start_time,
         end_time,
         affaire_id: affaireId,
@@ -116,6 +175,7 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
     setTitle('');
     setDescription('');
     setLocation('');
+    setImageData('');
     setAppointmentDate(new Date().toISOString().split('T')[0]);
     setStartHour('09:00');
     setEndHour('10:00');
@@ -265,6 +325,36 @@ export default function AppointmentModal({ isOpen, onClose, onSave, affaires, ex
                   rows={4}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
+              </div>
+
+              {/* Vignette */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" />
+                  Vignette du rendez-vous
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelected}
+                    className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-indigo-700 hover:file:bg-indigo-100"
+                  />
+                  {imageData && (
+                    <button
+                      type="button"
+                      onClick={() => setImageData('')}
+                      className="px-3 py-2 text-sm rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                    >
+                      Retirer
+                    </button>
+                  )}
+                </div>
+                {imageData && (
+                  <div className="mt-3 w-full h-32 rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                    <img src={imageData} alt="Vignette rendez-vous" className="w-full h-full object-cover" />
+                  </div>
+                )}
               </div>
 
               {/* Récurrence */}
