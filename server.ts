@@ -1721,21 +1721,39 @@ async function startServer() {
         return res.status(400).json({ error: "Unsupported database format" });
       }
 
-      const buffer = Buffer.from(fileContentBase64, 'base64');
+      let normalizedBase64 = String(fileContentBase64 || '').trim();
+      if (normalizedBase64.startsWith('data:')) {
+        const commaIndex = normalizedBase64.indexOf(',');
+        if (commaIndex !== -1) {
+          normalizedBase64 = normalizedBase64.slice(commaIndex + 1);
+        }
+      }
+      normalizedBase64 = normalizedBase64.replace(/\s+/g, '');
+
+      const buffer = Buffer.from(normalizedBase64, 'base64');
       if (!buffer || buffer.length === 0) {
         return res.status(400).json({ error: "Invalid or empty database file" });
       }
 
-      const sqliteHeader = buffer.subarray(0, 16).toString('utf8');
-      if (sqliteHeader !== 'SQLite format 3\u0000') {
+      const sqliteHeaderBuffer = Buffer.from('SQLite format 3\u0000', 'utf8');
+      const sqliteHeaderOffset = buffer.indexOf(sqliteHeaderBuffer);
+      if (sqliteHeaderOffset < 0) {
         return res.status(400).json({ error: "Invalid SQLite database file" });
       }
 
+      const sqliteBuffer = sqliteHeaderOffset === 0 ? buffer : buffer.subarray(sqliteHeaderOffset);
+
       const tempName = `import_${Date.now()}_${Math.random().toString(36).slice(2)}.db`;
       const tempPath = path.join(BACKUP_DIR, tempName);
-      fs.writeFileSync(tempPath, buffer);
+      fs.writeFileSync(tempPath, sqliteBuffer);
 
-      const sourceDb = new Database(tempPath, { readonly: true });
+      let sourceDb: Database.Database;
+      try {
+        sourceDb = new Database(tempPath, { readonly: true });
+      } catch {
+        fs.unlinkSync(tempPath);
+        return res.status(400).json({ error: "Invalid SQLite database file" });
+      }
       const allTables = [
         'profiles',
         'categories',
