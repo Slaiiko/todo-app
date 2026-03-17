@@ -58,6 +58,23 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
     }
   };
 
+  const downloadBackupFile = async (filename: string) => {
+    const response = await fetch(getAPIUrl(`/backups/download/${encodeURIComponent(filename)}`));
+    if (!response.ok) {
+      throw new Error(`Téléchargement impossible (HTTP ${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleExport = async () => {
     if (useEncryption && !password) {
       showMessage('error', 'Veuillez entrer un mot de passe pour chiffrer la sauvegarde.');
@@ -109,9 +126,8 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
       if (data.success) {
         showMessage('success', `Sauvegarde créée : ${data.filename} (${data.size} KB)`);
         fetchBackups();
-        
-        // Trigger download
-        window.location.href = `/api/backups/download/${data.filename}`;
+
+        await downloadBackupFile(data.filename);
       } else {
         showMessage('error', data.error || 'Erreur lors de la sauvegarde');
       }
@@ -166,7 +182,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
 
       showMessage('success', `Base exportée : ${data.filename} (${data.size} KB)`);
       fetchBackups();
-      window.location.href = `/api/backups/download/${data.filename}`;
+      await downloadBackupFile(data.filename);
     } catch (error: any) {
       showMessage('error', error?.message || 'Erreur lors de l\'export de la base');
     } finally {
@@ -584,14 +600,18 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <a 
-                    href={`/api/backups/download/${backup.filename}`}
-                    download
+                  <button
+                    type="button"
+                    onClick={() => {
+                      downloadBackupFile(backup.filename).catch((error: any) => {
+                        showMessage('error', error?.message || 'Téléchargement échoué');
+                      });
+                    }}
                     className="p-2 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                     title="Télécharger"
                   >
                     <Download className="w-4 h-4" />
-                  </a>
+                  </button>
                   <button 
                     onClick={() => handleDelete(backup.id)}
                     className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -607,15 +627,9 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
       </div>
 
       {/* Import Modal */}
-      <AnimatePresence>
-        {showImportModal && selectedFile && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-zinc-200"
-            >
+      {showImportModal && selectedFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-zinc-200">
               <div className="px-6 py-4 border-b border-zinc-100 bg-zinc-50">
                 <h3 className="text-lg font-bold text-zinc-900">Restaurer la sauvegarde</h3>
               </div>
@@ -702,10 +716,9 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
                   {isImporting ? 'Restauration...' : 'Restaurer'}
                 </button>
               </div>
-            </motion.div>
+            </div>
           </div>
-        )}
-      </AnimatePresence>
+      )}
     </div>
   );
 }

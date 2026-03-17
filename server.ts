@@ -1737,21 +1737,39 @@ async function startServer() {
 
       const sqliteHeaderBuffer = Buffer.from('SQLite format 3\u0000', 'utf8');
       const sqliteHeaderOffset = buffer.indexOf(sqliteHeaderBuffer);
-      if (sqliteHeaderOffset < 0) {
-        return res.status(400).json({ error: "Invalid SQLite database file" });
-      }
-
-      const sqliteBuffer = sqliteHeaderOffset === 0 ? buffer : buffer.subarray(sqliteHeaderOffset);
 
       const tempName = `import_${Date.now()}_${Math.random().toString(36).slice(2)}.db`;
       const tempPath = path.join(BACKUP_DIR, tempName);
-      fs.writeFileSync(tempPath, sqliteBuffer);
 
-      let sourceDb: Database.Database;
-      try {
-        sourceDb = new Database(tempPath, { readonly: true });
-      } catch {
-        fs.unlinkSync(tempPath);
+      let sourceDb: Database.Database | null = null;
+      const candidateBuffers: Buffer[] = [buffer];
+      if (sqliteHeaderOffset > 0) {
+        candidateBuffers.push(buffer.subarray(sqliteHeaderOffset));
+      }
+
+      for (const candidate of candidateBuffers) {
+        try {
+          fs.writeFileSync(tempPath, candidate);
+          const opened = new Database(tempPath, { readonly: true });
+          opened.prepare('PRAGMA schema_version').get();
+          sourceDb = opened;
+          break;
+        } catch {
+          try {
+            if (sourceDb) {
+              sourceDb.close();
+              sourceDb = null;
+            }
+          } catch {
+            // ignore close errors
+          }
+        }
+      }
+
+      if (!sourceDb) {
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {
+          // ignore cleanup errors
+        }
         return res.status(400).json({ error: "Invalid SQLite database file" });
       }
       const allTables = [
