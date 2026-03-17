@@ -457,14 +457,15 @@ const restoreSubtasksWithParents = (subtasks, taskMap, mode = 'insert') => {
                 const existing = db.prepare("SELECT id FROM subtasks WHERE task_id = ? AND title = ? AND COALESCE(parent_subtask_id, 0) = COALESCE(?, 0)").get(mappedTaskId, subtask.title, mappedParentId);
                 if (existing) {
                     finalId = existing.id;
+                    db.prepare("UPDATE subtasks SET is_complete = ?, time_spent = ?, focus_time_spent = ?, validation_time_spent = ?, completed_at = ?, order_index = ? WHERE id = ?").run(subtask.is_complete ? 1 : 0, Number.isFinite(subtask.time_spent) ? subtask.time_spent : 0, Number.isFinite(subtask.focus_time_spent) ? subtask.focus_time_spent : 0, Number.isFinite(subtask.validation_time_spent) ? subtask.validation_time_spent : 0, subtask.completed_at || null, Number.isFinite(subtask.order_index) ? subtask.order_index : 0, finalId);
                 }
                 else {
-                    const info = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, title, is_complete, time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?)").run(mappedTaskId, mappedParentId, subtask.title, subtask.is_complete ? 1 : 0, subtask.time_spent || 0, subtask.completed_at || null);
+                    const info = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, order_index, title, is_complete, time_spent, focus_time_spent, validation_time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(mappedTaskId, mappedParentId, Number.isFinite(subtask.order_index) ? subtask.order_index : 0, subtask.title, subtask.is_complete ? 1 : 0, Number.isFinite(subtask.time_spent) ? subtask.time_spent : 0, Number.isFinite(subtask.focus_time_spent) ? subtask.focus_time_spent : 0, Number.isFinite(subtask.validation_time_spent) ? subtask.validation_time_spent : 0, subtask.completed_at || null);
                     finalId = Number(info.lastInsertRowid);
                 }
             }
             else {
-                const info = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, title, is_complete, time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?)").run(mappedTaskId, mappedParentId, subtask.title, subtask.is_complete ? 1 : 0, subtask.time_spent || 0, subtask.completed_at || null);
+                const info = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, order_index, title, is_complete, time_spent, focus_time_spent, validation_time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(mappedTaskId, mappedParentId, Number.isFinite(subtask.order_index) ? subtask.order_index : 0, subtask.title, subtask.is_complete ? 1 : 0, Number.isFinite(subtask.time_spent) ? subtask.time_spent : 0, Number.isFinite(subtask.focus_time_spent) ? subtask.focus_time_spent : 0, Number.isFinite(subtask.validation_time_spent) ? subtask.validation_time_spent : 0, subtask.completed_at || null);
                 finalId = Number(info.lastInsertRowid);
             }
             if (subtask.id != null) {
@@ -478,7 +479,7 @@ const restoreSubtasksWithParents = (subtasks, taskMap, mode = 'insert') => {
                 if (!taskMap.has(subtask.task_id))
                     continue;
                 const mappedTaskId = taskMap.get(subtask.task_id);
-                const info = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, title, is_complete, time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?)").run(mappedTaskId, null, subtask.title, subtask.is_complete ? 1 : 0, subtask.time_spent || 0, subtask.completed_at || null);
+                const info = db.prepare("INSERT INTO subtasks (task_id, parent_subtask_id, order_index, title, is_complete, time_spent, focus_time_spent, validation_time_spent, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(mappedTaskId, null, Number.isFinite(subtask.order_index) ? subtask.order_index : 0, subtask.title, subtask.is_complete ? 1 : 0, Number.isFinite(subtask.time_spent) ? subtask.time_spent : 0, Number.isFinite(subtask.focus_time_spent) ? subtask.focus_time_spent : 0, Number.isFinite(subtask.validation_time_spent) ? subtask.validation_time_spent : 0, subtask.completed_at || null);
                 if (subtask.id != null) {
                     subtaskMap.set(subtask.id, Number(info.lastInsertRowid));
                 }
@@ -1281,6 +1282,7 @@ async function startServer() {
             const allParticipants = db.prepare("SELECT * FROM appointment_participants").all();
             const allDocuments = db.prepare("SELECT * FROM documents").all();
             const allChatMessages = db.prepare("SELECT * FROM chat_messages").all();
+            const allBackupLogs = db.prepare("SELECT * FROM backup_log").all();
             let profiles = [];
             let tasks = [];
             let subtasks = [];
@@ -1292,6 +1294,7 @@ async function startServer() {
             let appointment_participants = [];
             let documents = [];
             let chat_messages = [];
+            let backup_log = [];
             let exportedBy = 'System';
             if (exportScope === 'full') {
                 profiles = allProfiles;
@@ -1305,6 +1308,7 @@ async function startServer() {
                 appointment_participants = allParticipants;
                 documents = allDocuments;
                 chat_messages = allChatMessages;
+                backup_log = allBackupLogs;
                 exportedBy = 'All profiles';
             }
             else {
@@ -1329,6 +1333,7 @@ async function startServer() {
                     return (entityType === 'task' && taskIds.has(entityId)) || (entityType === 'subtask' && subtaskIds.has(entityId));
                 });
                 chat_messages = [];
+                backup_log = allBackupLogs.filter((log) => Number(log.profile_id) === Number(profileId));
                 exportedBy = profile.name;
             }
             const backupData = {
@@ -1347,6 +1352,7 @@ async function startServer() {
                 appointment_participants,
                 documents,
                 chat_messages,
+                backup_log,
                 comments: comments || {},
                 images: [],
                 badges: [],
@@ -1402,7 +1408,7 @@ async function startServer() {
             const filenameBase = `TodoDatabase_${dateStr}`;
             const filepath = path.join(BACKUP_DIR, `${filenameBase}.db`);
             if (exportScope === 'full') {
-                fs.copyFileSync(DB_PATH, filepath);
+                snapshotDb(filepath);
             }
             else {
                 const profile = db.prepare("SELECT * FROM profiles WHERE id = ?").get(profileId);
@@ -1411,7 +1417,7 @@ async function startServer() {
                 safeLabel = String(profile.name || 'profile').replace(/[^a-zA-Z0-9_-]/g, '_');
                 backupProfileId = Number(profileId);
                 const profileFilePath = path.join(BACKUP_DIR, `${filenameBase}_${safeLabel}.db`);
-                fs.copyFileSync(DB_PATH, profileFilePath);
+                snapshotDb(profileFilePath);
                 const tempDb = new Database(profileFilePath);
                 tempDb.pragma("foreign_keys = OFF");
                 const keepProfileId = Number(profileId);
@@ -1485,18 +1491,57 @@ async function startServer() {
             if (!lowerName.endsWith('.db') && !lowerName.endsWith('.sqlite') && !lowerName.endsWith('.sqlite3')) {
                 return res.status(400).json({ error: "Unsupported database format" });
             }
-            const buffer = Buffer.from(fileContentBase64, 'base64');
+            let normalizedBase64 = String(fileContentBase64 || '').trim();
+            if (normalizedBase64.startsWith('data:')) {
+                const commaIndex = normalizedBase64.indexOf(',');
+                if (commaIndex !== -1) {
+                    normalizedBase64 = normalizedBase64.slice(commaIndex + 1);
+                }
+            }
+            normalizedBase64 = normalizedBase64.replace(/\s+/g, '');
+            const buffer = Buffer.from(normalizedBase64, 'base64');
             if (!buffer || buffer.length === 0) {
                 return res.status(400).json({ error: "Invalid or empty database file" });
             }
-            const sqliteHeader = buffer.subarray(0, 16).toString('utf8');
-            if (sqliteHeader !== 'SQLite format 3\u0000') {
-                return res.status(400).json({ error: "Invalid SQLite database file" });
-            }
+            const sqliteHeaderBuffer = Buffer.from('SQLite format 3\u0000', 'utf8');
+            const sqliteHeaderOffset = buffer.indexOf(sqliteHeaderBuffer);
             const tempName = `import_${Date.now()}_${Math.random().toString(36).slice(2)}.db`;
             const tempPath = path.join(BACKUP_DIR, tempName);
-            fs.writeFileSync(tempPath, buffer);
-            const sourceDb = new Database(tempPath, { readonly: true });
+            let sourceDb = null;
+            const candidateBuffers = [buffer];
+            if (sqliteHeaderOffset > 0) {
+                candidateBuffers.push(buffer.subarray(sqliteHeaderOffset));
+            }
+            for (const candidate of candidateBuffers) {
+                try {
+                    fs.writeFileSync(tempPath, candidate);
+                    const opened = new Database(tempPath, { readonly: true });
+                    opened.prepare('PRAGMA schema_version').get();
+                    sourceDb = opened;
+                    break;
+                }
+                catch {
+                    try {
+                        if (sourceDb) {
+                            sourceDb.close();
+                            sourceDb = null;
+                        }
+                    }
+                    catch {
+                        // ignore close errors
+                    }
+                }
+            }
+            if (!sourceDb) {
+                try {
+                    if (fs.existsSync(tempPath))
+                        fs.unlinkSync(tempPath);
+                }
+                catch {
+                    // ignore cleanup errors
+                }
+                return res.status(400).json({ error: "Invalid SQLite database file" });
+            }
             const allTables = [
                 'profiles',
                 'categories',
@@ -1793,9 +1838,9 @@ async function startServer() {
                     const taskMap = new Map();
                     for (const t of (backupData.tasks || [])) {
                         const info = db.prepare(`
-              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at || null);
+              INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, subtasks_time_spent, focus_time_spent, validation_time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, Number.isFinite(t.subtasks_time_spent) ? t.subtasks_time_spent : 0, Number.isFinite(t.focus_time_spent) ? t.focus_time_spent : 0, Number.isFinite(t.validation_time_spent) ? t.validation_time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at || null);
                         taskMap.set(t.id, info.lastInsertRowid);
                     }
                     for (const msg of (backupData.chat_messages || [])) {
@@ -1807,6 +1852,13 @@ async function startServer() {
               INSERT INTO chat_messages (sender_profile_id, recipient_profile_id, content, is_read, created_at)
               VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             `).run(mappedSenderId, mappedRecipientId, msg.content || '', msg.is_read ? 1 : 0, msg.created_at || null);
+                    }
+                    for (const log of (backupData.backup_log || [])) {
+                        const mappedProfileId = log.profile_id != null ? profileMap.get(log.profile_id) ?? null : null;
+                        db.prepare(`
+              INSERT INTO backup_log (filename, path, exported_at, profile_id, task_count, file_size_kb, is_encrypted, status)
+              VALUES (?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?)
+            `).run(log.filename || 'imported_backup.json', log.path || '', log.exported_at || null, mappedProfileId, Number.isFinite(log.task_count) ? log.task_count : 0, Number.isFinite(log.file_size_kb) ? log.file_size_kb : 0, log.is_encrypted ? 1 : 0, log.status || 'success');
                     }
                     // Insert subtasks
                     const subtaskMap = restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
@@ -1892,16 +1944,16 @@ async function startServer() {
                             if (backupUpdated > existingUpdated) {
                                 db.prepare(`
                   UPDATE tasks 
-                  SET description_md = ?, start_date = ?, due_date = ?, start_time = ?, end_time = ?, priority = ?, category_id = ?, affaire_id = ?, is_complete = ?, is_archived = ?, is_deleted = ?, bg_color = ?, time_spent = ?, recurrence = ?, recurrence_type = ?, recurrence_end_date = ?, image_data = ?, order_index = ?, kanban_column = ?, completed_at = ?, updated_at = ?
+                  SET description_md = ?, start_date = ?, due_date = ?, start_time = ?, end_time = ?, priority = ?, category_id = ?, affaire_id = ?, is_complete = ?, is_archived = ?, is_deleted = ?, bg_color = ?, time_spent = ?, subtasks_time_spent = ?, focus_time_spent = ?, validation_time_spent = ?, recurrence = ?, recurrence_type = ?, recurrence_end_date = ?, image_data = ?, order_index = ?, kanban_column = ?, completed_at = ?, updated_at = ?
                   WHERE id = ?
-                `).run(t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.completed_at, t.updated_at || t.created_at, existing.id);
+                `).run(t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, Number.isFinite(t.subtasks_time_spent) ? t.subtasks_time_spent : 0, Number.isFinite(t.focus_time_spent) ? t.focus_time_spent : 0, Number.isFinite(t.validation_time_spent) ? t.validation_time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.completed_at, t.updated_at || t.created_at, existing.id);
                             }
                         }
                         else {
                             const info = db.prepare(`
-                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).run(targetProfileId, t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
+                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, subtasks_time_spent, focus_time_spent, validation_time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(targetProfileId, t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, Number.isFinite(t.subtasks_time_spent) ? t.subtasks_time_spent : 0, Number.isFinite(t.focus_time_spent) ? t.focus_time_spent : 0, Number.isFinite(t.validation_time_spent) ? t.validation_time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
                             taskMap.set(t.id, info.lastInsertRowid);
                         }
                     }
@@ -1916,6 +1968,22 @@ async function startServer() {
                                     db.prepare("INSERT INTO task_assignees (task_id, assignee_name, assignee_avatar, created_at) VALUES (?, ?, ?, ?)").run(taskMap.get(ta.task_id), ta.assignee_name, ta.assignee_avatar || '👤', ta.created_at);
                                 }
                             }
+                        }
+                    }
+                    for (const log of (backupData.backup_log || [])) {
+                        const mappedProfileId = log.profile_id != null ? targetProfileId : null;
+                        const existing = db.prepare(`
+              SELECT id FROM backup_log
+              WHERE filename = ?
+                AND COALESCE(exported_at, '') = COALESCE(?, '')
+                AND COALESCE(profile_id, 0) = COALESCE(?, 0)
+              LIMIT 1
+            `).get(log.filename || 'imported_backup.json', log.exported_at || null, mappedProfileId);
+                        if (!existing) {
+                            db.prepare(`
+                INSERT INTO backup_log (filename, path, exported_at, profile_id, task_count, file_size_kb, is_encrypted, status)
+                VALUES (?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?)
+              `).run(log.filename || 'imported_backup.json', log.path || '', log.exported_at || null, mappedProfileId, Number.isFinite(log.task_count) ? log.task_count : 0, Number.isFinite(log.file_size_kb) ? log.file_size_kb : 0, log.is_encrypted ? 1 : 0, log.status || 'success');
                         }
                     }
                     // Merge appointments
@@ -1986,9 +2054,9 @@ async function startServer() {
                     for (const t of (backupData.tasks || [])) {
                         if (profileMap.has(t.profile_id)) {
                             const info = db.prepare(`
-                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
+                INSERT INTO tasks (profile_id, title, description_md, start_date, due_date, start_time, end_time, priority, category_id, affaire_id, is_complete, is_archived, is_deleted, bg_color, time_spent, subtasks_time_spent, focus_time_spent, validation_time_spent, recurrence, recurrence_type, recurrence_end_date, image_data, order_index, kanban_column, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(profileMap.get(t.profile_id), t.title, t.description_md, t.start_date || null, t.due_date, t.start_time || null, t.end_time || null, t.priority, categoryMap.get(t.category_id) || null, affaireMap.get(t.affaire_id) || null, t.is_complete ? 1 : 0, t.is_archived ? 1 : 0, t.is_deleted ? 1 : 0, t.bg_color || null, Number.isFinite(t.time_spent) ? t.time_spent : 0, Number.isFinite(t.subtasks_time_spent) ? t.subtasks_time_spent : 0, Number.isFinite(t.focus_time_spent) ? t.focus_time_spent : 0, Number.isFinite(t.validation_time_spent) ? t.validation_time_spent : 0, t.recurrence || null, t.recurrence_type || null, t.recurrence_end_date || null, t.image_data || null, t.order_index, t.kanban_column, t.created_at, t.updated_at || t.created_at, t.completed_at);
                             taskMap.set(t.id, info.lastInsertRowid);
                         }
                     }
@@ -2001,6 +2069,13 @@ async function startServer() {
               INSERT INTO chat_messages (sender_profile_id, recipient_profile_id, content, is_read, created_at)
               VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             `).run(mappedSenderId, mappedRecipientId, msg.content || '', msg.is_read ? 1 : 0, msg.created_at || null);
+                    }
+                    for (const log of (backupData.backup_log || [])) {
+                        const mappedProfileId = log.profile_id != null ? profileMap.get(log.profile_id) ?? null : null;
+                        db.prepare(`
+              INSERT INTO backup_log (filename, path, exported_at, profile_id, task_count, file_size_kb, is_encrypted, status)
+              VALUES (?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?)
+            `).run(log.filename || 'imported_backup.json', log.path || '', log.exported_at || null, mappedProfileId, Number.isFinite(log.task_count) ? log.task_count : 0, Number.isFinite(log.file_size_kb) ? log.file_size_kb : 0, log.is_encrypted ? 1 : 0, log.status || 'success');
                     }
                     // Insert subtasks
                     const subtaskMap = restoreSubtasksWithParents(backupData.subtasks || [], taskMap, 'insert');
@@ -2071,6 +2146,10 @@ async function startServer() {
     app.post("/api/appointments", (req, res) => {
         try {
             const { profile_id, title, description, location, image_data, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
+            const rawImageData = image_data ?? req.body?.imageData ?? req.body?.image ?? null;
+            const normalizedImageData = typeof rawImageData === 'string' && rawImageData.trim().length > 0
+                ? rawImageData
+                : null;
             if (!profile_id || !title || !start_time || !end_time) {
                 return res.status(400).json({ error: "Missing required fields (profile_id, title, start_time, end_time)" });
             }
@@ -2088,7 +2167,7 @@ async function startServer() {
         INSERT INTO appointments (profile_id, title, description, location, image_data, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-            const info = stmt.run(profile_id, title, description, location, image_data || null, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null);
+            const info = stmt.run(profile_id, title, description, location, normalizedImageData, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null);
             const appointmentId = info.lastInsertRowid;
             if (normalizedParticipants.length > 0) {
                 const participantStmt = db.prepare(`
@@ -2109,6 +2188,10 @@ async function startServer() {
     app.put("/api/appointments/:id", (req, res) => {
         try {
             const { title, description, location, image_data, start_time, end_time, affaire_id, video_call_link, recurrence_type, recurrence_end_date, participants } = req.body;
+            const rawImageData = image_data ?? req.body?.imageData ?? req.body?.image ?? null;
+            const normalizedImageData = typeof rawImageData === 'string' && rawImageData.trim().length > 0
+                ? rawImageData
+                : null;
             if (!title || !start_time || !end_time) {
                 return res.status(400).json({ error: "Missing required fields (title, start_time, end_time)" });
             }
@@ -2116,7 +2199,7 @@ async function startServer() {
         UPDATE appointments 
         SET title = ?, description = ?, location = ?, image_data = ?, start_time = ?, end_time = ?, affaire_id = ?, video_call_link = ?, recurrence_type = ?, recurrence_end_date = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(title, description, location, image_data || null, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null, req.params.id);
+      `).run(title, description, location, normalizedImageData, start_time, end_time, affaire_id || null, video_call_link || null, recurrence_type || null, recurrence_end_date || null, req.params.id);
             db.prepare("DELETE FROM appointment_participants WHERE appointment_id = ?").run(req.params.id);
             const normalizedParticipants = Array.isArray(participants)
                 ? participants.map((p) => ({

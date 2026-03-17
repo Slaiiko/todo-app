@@ -240,8 +240,8 @@ export default function StatsView({
             <span>Série de 3 jours !</span>
           </div>
         </div>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-72 min-w-0">
+          <ResponsiveContainer width="100%" height={288} minWidth={0}>
             <BarChart data={last7Days} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#a1a1aa', fontSize: 12 }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fill: '#a1a1aa', fontSize: 12 }} />

@@ -172,7 +172,7 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
       const res = await fetch(getAPIUrl('/backups/export-db'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileId, scope: 'profile' })
+        body: JSON.stringify({ profileId, scope: 'full' })
       });
       const data = await res.json();
       if (!res.ok || !data?.success) {

@@ -25,9 +25,12 @@ export default function EntityDocuments({ entityType, entityId, readOnly = false
   const [isUploading, setIsUploading] = useState(false);
   const [deletingDocumentId, setDeletingDocumentId] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
 
   const loadDocuments = async () => {
     if (!entityId) return;
+    const requestId = ++loadRequestIdRef.current;
     setIsLoading(true);
     try {
       const response = await fetch(getAPIUrl(`/documents/${entityType}/${entityId}`));
@@ -35,17 +38,26 @@ export default function EntityDocuments({ entityType, entityId, readOnly = false
         throw new Error(`HTTP ${response.status}`);
       }
       const data = await response.json();
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) return;
       setDocuments(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to load documents:', error);
-      setDocuments([]);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setDocuments([]);
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     loadDocuments();
+    return () => {
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
+    };
   }, [entityType, entityId]);
 
   const handleFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,6 +66,7 @@ export default function EntityDocuments({ entityType, entityId, readOnly = false
 
     setIsUploading(true);
     try {
+      const uploadedDocuments: DocumentAttachment[] = [];
       for (const file of files) {
         const dataUrl = await readFileAsDataUrl(file);
         const response = await fetch(getAPIUrl('/documents'), {
@@ -71,10 +84,30 @@ export default function EntityDocuments({ entityType, entityId, readOnly = false
         if (!response.ok) {
           throw new Error(`Upload failed: HTTP ${response.status}`);
         }
+
+        try {
+          const uploaded = await response.json();
+          if (uploaded && typeof uploaded.id === 'number') {
+            uploadedDocuments.push(uploaded as DocumentAttachment);
+          }
+        } catch {
+          // Ignore parse issues and fallback to reload below
+        }
       }
 
-      await loadDocuments();
-      window.dispatchEvent(new CustomEvent('taskMoved'));
+      if (uploadedDocuments.length > 0) {
+        setDocuments((prev) => {
+          const merged = [...prev];
+          for (const uploaded of uploadedDocuments) {
+            if (!merged.some((doc) => doc.id === uploaded.id)) {
+              merged.push(uploaded);
+            }
+          }
+          return merged;
+        });
+      } else {
+        await loadDocuments();
+      }
     } catch (error) {
       console.error('Failed to upload documents:', error);
       alert('Erreur lors de l\'ajout du document.');
@@ -105,7 +138,6 @@ export default function EntityDocuments({ entityType, entityId, readOnly = false
 
       // Optimistic local update — no extra network call
       setDocuments(prev => prev.filter(d => d.id !== documentId));
-      window.dispatchEvent(new CustomEvent('taskMoved'));
     } catch (error: any) {
       if (error?.name === 'AbortError') {
         alert('La suppression a pris trop de temps. Vérifiez que le serveur est actif.');
@@ -164,8 +196,8 @@ export default function EntityDocuments({ entityType, entityId, readOnly = false
         </span>
       )}
 
-      {documents.map((document) => (
-        <div key={document.id} className="inline-flex items-center gap-1 max-w-[280px]">
+      {documents.map((document, index) => (
+        <div key={`${document.id ?? 'doc'}-${document.file_name ?? 'file'}-${document.created_at ?? index}`} className="inline-flex items-center gap-1 max-w-[280px]">
           <a
             href={document.data_url}
             download={document.file_name}

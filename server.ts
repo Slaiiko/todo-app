@@ -1622,7 +1622,7 @@ async function startServer() {
       const filepath = path.join(BACKUP_DIR, `${filenameBase}.db`);
 
       if (exportScope === 'full') {
-        fs.copyFileSync(DB_PATH, filepath);
+        snapshotDb(filepath);
       } else {
         const profile = db.prepare("SELECT * FROM profiles WHERE id = ?").get(profileId) as any;
         if (!profile) return res.status(404).json({ error: "Profile not found" });
@@ -1631,7 +1631,7 @@ async function startServer() {
         backupProfileId = Number(profileId);
 
         const profileFilePath = path.join(BACKUP_DIR, `${filenameBase}_${safeLabel}.db`);
-        fs.copyFileSync(DB_PATH, profileFilePath);
+        snapshotDb(profileFilePath);
 
         const tempDb = new Database(profileFilePath);
         tempDb.pragma("foreign_keys = OFF");

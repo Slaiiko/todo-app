@@ -2447,7 +2447,7 @@ export default function App() {
               <h1 className="text-xl font-semibold capitalize">
                 {getHeaderTitle()}
               </h1>
-              <div className="flex items-center gap-4">
+              <div className="ml-auto flex items-center gap-4">
                 {layoutSwitch}
                 {primaryActions}
               </div>
