@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { DatabaseBackup, Download, Upload, Trash2, Lock, FileJson, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -381,30 +380,17 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
         </button>
       </div>
 
-      <AnimatePresence mode="wait">
-        {message && (
-          <motion.div
-            key={message.text + message.type}
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className={`p-4 rounded-xl flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}
-          >
-            {message.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-            <p className="font-medium">{message.text}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {message && (
+        <div
+          className={`p-4 rounded-xl flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}
+        >
+          {message.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          <p className="font-medium">{message.text}</p>
+        </div>
+      )}
 
-      <AnimatePresence>
-        {showBackupTools && (
-          <motion.div
-            initial={{ opacity: 0, height: 0, y: -8 }}
-            animate={{ opacity: 1, height: 'auto', y: 0 }}
-            exit={{ opacity: 0, height: 0, y: -8 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
+      {showBackupTools && (
+        <div className="overflow-hidden">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Auto-Backup Section */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200 flex flex-col md:col-span-2">
@@ -463,24 +449,17 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
               </span>
             </label>
             
-            <AnimatePresence>
-              {useEncryption && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Mot de passe de chiffrement"
-                    className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {useEncryption && (
+              <div className="overflow-hidden">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mot de passe de chiffrement"
+                  className="w-full px-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            )}
           </div>
 
           <button
@@ -564,9 +543,8 @@ export default function BackupManager({ profileId, onRestoreComplete }: Props) {
           </div>
         </div>
       </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
 
       <div className="bg-white rounded-3xl shadow-sm border border-zinc-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50/50">

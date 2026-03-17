@@ -229,6 +229,23 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
     }
   };
 
+  const downloadBackupFile = async (filename: string) => {
+    const response = await fetch(getAPIUrl(`/backups/download/${encodeURIComponent(filename)}`));
+    if (!response.ok) {
+      throw new Error(`Téléchargement impossible (HTTP ${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleExportAllJson = async () => {
     setIsExportingAllJson(true);
     try {
@@ -265,7 +282,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
       }
 
       showImportToast('success', `Export complet JSON créé: ${data.filename}`);
-      window.location.href = `/api/backups/download/${data.filename}`;
+      await downloadBackupFile(data.filename);
     } catch (error: any) {
       showImportToast('error', error?.message || 'Erreur export JSON global');
     } finally {
@@ -287,7 +304,7 @@ export default function ProfileSelector({ profiles, onSelect, onCreateProfile, o
       }
 
       showImportToast('success', `Export complet DB créé: ${data.filename}`);
-      window.location.href = `/api/backups/download/${data.filename}`;
+      await downloadBackupFile(data.filename);
     } catch (error: any) {
       showImportToast('error', error?.message || 'Erreur export DB global');
     } finally {
